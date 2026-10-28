@@ -1,10 +1,10 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentRun } from "@/lib/settings";
-import { saveSettings } from "@/lib/settings-data";
 import { createTestClient, resetDatabase } from "@/test/db";
 
-import { nextAgentRun, resetInterruptedDrafts, scheduledRunDue, startDueRun } from "./schedule";
+import { listAgents } from "./agents";
+import { nextAgentRun, resetInterruptedDrafts, scheduledRunDue, startDueRuns } from "./schedule";
 import { runLimitProblem } from "./runs";
 
 const db = vi.hoisted(() => ({ client: undefined as ReturnType<typeof createTestClient> | undefined }));
@@ -13,6 +13,8 @@ vi.mock("@/lib/prisma", async () => {
   db.client = createTestClient();
   return { prisma: db.client };
 });
+// The source the old single agent searched, from Settings → Job search.
+vi.mock("@/lib/job-search/config", () => ({ loadJobSearchConfig: async () => ({ source: "JSEARCH" }) }));
 const zone = vi.hoisted(() => ({ value: "Europe/Berlin" }));
 vi.mock("@/lib/time-zone", () => ({ lastKnownTimeZone: async () => zone.value }));
 vi.mock("@/lib/jobs/runner", async (importOriginal) => ({
@@ -22,6 +24,7 @@ vi.mock("@/lib/jobs/runner", async (importOriginal) => ({
 
 const prisma = () => db.client!;
 const run = (at: string, manual = false): AgentRun => ({ at, manual, message: null });
+const saveLegacy = (rows: Record<string, string>) => prisma().setting.createMany({ data: Object.entries(rows).map(([key, value]) => ({ key, value })) });
 
 beforeEach(async () => {
   zone.value = "Europe/Berlin";
@@ -84,23 +87,48 @@ describe("the limits (E16-4)", () => {
 });
 
 describe("the schedule (E16-4)", () => {
-  it("starts the day's run when it's due and the agent is on, once", async () => {
+  it("starts each agent's run when it's due and the agent is on, once", async () => {
     const { startJob } = await import("@/lib/jobs/runner");
     const due = new Date("2026-10-20T06:00:00Z");
-    expect(await startDueRun(due)).toBeNull();
-    await saveSettings({ agentEnabled: true });
-    expect(await startDueRun(due)).toBe("agent-job");
-    expect(startJob).toHaveBeenCalledWith(expect.objectContaining({ type: "agent-scan" }), { manual: false }, { key: "agent" });
+    const query = { keywords: "Designer", place: "", country: "de", radiusKm: 25, remoteOnly: false, postedWithin: "any" };
+    const { id } = await prisma().jobAgent.create({ data: { source: "JSEARCH", query, hour: 7 } });
+    expect(await startDueRuns(due)).toEqual([]);
+    await prisma().jobAgent.update({ where: { id }, data: { enabled: true } });
+    expect(await startDueRuns(due)).toEqual(["agent-job"]);
+    expect(startJob).toHaveBeenCalledWith(expect.objectContaining({ type: "agent-scan" }), { agentId: id, manual: false }, { key: `agent:${id}` });
 
     // Not while one is queued or running, nor before the hour, nor after today's.
     vi.mocked(startJob).mockClear();
-    await prisma().job.create({ data: { type: "agent-scan", key: "agent", status: "RUNNING", input: { manual: false } } });
-    expect(await startDueRun(due)).toBeNull();
+    await prisma().job.create({ data: { type: "agent-scan", key: `agent:${id}`, status: "RUNNING", input: { agentId: id, manual: false } } });
+    expect(await startDueRuns(due)).toEqual([]);
     await prisma().job.deleteMany();
-    expect(await startDueRun(new Date("2026-10-20T04:00:00Z"))).toBeNull();
-    await saveSettings({ agentRuns: [run("2026-10-20T05:00:00Z")] });
-    expect(await startDueRun(due)).toBeNull();
+    expect(await startDueRuns(new Date("2026-10-20T04:00:00Z"))).toEqual([]);
+    await prisma().jobAgent.update({ where: { id }, data: { runs: [run("2026-10-20T05:00:00Z")] } });
+    expect(await startDueRuns(due)).toEqual([]);
     expect(startJob).not.toHaveBeenCalled();
+
+    // Another agent, due later, runs at its own hour.
+    const later = await prisma().jobAgent.create({ data: { source: "APIFY_INDEED", query, hour: 9, enabled: true } });
+    expect(await startDueRuns(due)).toEqual([]);
+    expect(await startDueRuns(new Date("2026-10-20T07:30:00Z"))).toEqual(["agent-job"]);
+    expect(startJob).toHaveBeenCalledWith(expect.anything(), { agentId: later.id, manual: false }, { key: `agent:${later.id}` });
+  });
+
+  it("makes the single agent of 1.9 the first JobAgent, once, with what it found", async () => {
+    const query = { keywords: "Data scientist", place: "Berlin", country: "de", radiusKm: 25, remoteOnly: false, postedWithin: "week" };
+    await saveLegacy({ agentEnabled: "true", agentQuery: JSON.stringify(query), agentHour: "9", agentMinScore: "80", agentRuns: JSON.stringify([run("2026-10-20T05:00:00Z")]) });
+    await prisma().agentCandidate.create({ data: { source: "JSEARCH", externalId: "job-1", dedupeKey: "k1" } });
+    const [agent] = await listAgents();
+    expect(agent).toMatchObject({ source: "JSEARCH", query, enabled: true, hour: 9, minScore: 80, runs: [run("2026-10-20T05:00:00Z")] });
+    expect(await prisma().agentCandidate.findFirstOrThrow()).toMatchObject({ agentId: agent.id });
+    expect(await prisma().setting.count({ where: { key: { startsWith: "agent" } } })).toBe(0);
+    expect(await listAgents()).toHaveLength(1);
+  });
+
+  it("makes no agent from settings that were never used", async () => {
+    await saveLegacy({ agentHour: "9" });
+    expect(await listAgents()).toEqual([]);
+    expect(await prisma().setting.count()).toBe(0);
   });
 
   it("sends drafts a restart interrupted back to the queue, saying so", async () => {

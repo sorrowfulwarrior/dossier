@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { toast } from "@/components/toast";
-import type { AgentCandidateView, AgentView } from "@/lib/agent/view";
+import type { AgentCandidateView, AgentSummary, AgentView } from "@/lib/agent/view";
 
 import { approveAgentDraft, dismissAgentCandidate, prepareAgentDraft, restoreAgentCandidate, runAgentNow } from "./actions";
 import { AgentScreen } from "./agent-screen";
@@ -34,14 +34,17 @@ const card = (id: string, score: number, extra: Partial<AgentCandidateView> = {}
   error: null,
   applicationId: null,
   draftJobId: null,
+  agentId: "agent-1",
+  agentName: "Product designer",
   ...extra,
 });
-const view: AgentView = {
+const agent: AgentSummary = {
+  id: "agent-1",
+  name: "Product designer",
+  source: "JSEARCH",
   enabled: true,
   autoDraft: false,
   minScore: 70,
-  maxScores: 15,
-  maxDrafts: 3,
   search: "Product designer · Rotterdam, 25 km · via JSearch",
   setupProblem: null,
   setupSection: null,
@@ -49,11 +52,16 @@ const view: AgentView = {
   lastRun: { at: "Tue 20 Oct, 07:00", message: "2 new postings are waiting for a look." },
   nextRun: "Wed 21 Oct, 07:00",
   runJobId: null,
+};
+const view: AgentView = {
+  agents: [agent],
+  autoDraft: false,
   drafts: [card("d1", 91, { applicationId: "app-1" })],
   scored: [card("s1", 84, { redFlags: ["German required"], error: "The draft couldn't be prepared. Try again." }), card("s2", 72)],
   belowMinimum: [card("b1", 40)],
 };
-const open = (changes: Partial<AgentView> = {}) => render(<AgentScreen view={{ ...view, ...changes }} />);
+const open = (changes: Partial<AgentView> = {}, agentChanges: Partial<AgentSummary> = {}) =>
+  render(<AgentScreen view={{ ...view, agents: [{ ...agent, ...agentChanges }], ...changes }} />);
 
 beforeEach(() => vi.clearAllMocks());
 
@@ -147,32 +155,62 @@ describe("AgentScreen (E16-6)", () => {
   it("runs now on request", async () => {
     const user = userEvent.setup();
     open();
-    await user.click(screen.getByRole("button", { name: "Run now" }));
-    expect(runAgentNow).toHaveBeenCalledWith({});
+    await user.click(screen.getByRole("button", { name: "Run now Product designer" }));
+    expect(runAgentNow).toHaveBeenCalledWith({ agentId: "agent-1" });
     expect(screen.getByRole("button", { name: "Running…" })).toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("Starting the run…");
   });
 
   it("points to Settings while it's off, not set up, or out of runs for the day", () => {
-    const { unmount } = open({ enabled: false, nextRun: null });
-    expect(screen.getByRole("note")).toHaveTextContent("The job agent is off. Turn it on in Settings → Job agent. What it found before is still here.");
+    const { unmount } = open({}, { enabled: false, nextRun: null });
+    expect(screen.getByRole("note")).toHaveTextContent("This agent is off. Turn it on in Settings → Job agent");
     expect(screen.getByRole("link", { name: "Turn it on in Settings → Job agent" })).toHaveAttribute("href", "/settings?section=agent");
     expect(screen.getByText("Next run").nextElementSibling).toHaveTextContent("Off");
     unmount();
 
-    const second = open({ setupProblem: "Choose a job source in Settings → Job search first.", setupSection: "jobs" });
+    const second = open({}, { setupProblem: "Choose a job source in Settings → Job search first.", setupSection: "jobs" });
     expect(screen.getByRole("note")).toHaveTextContent("Choose a job source. Go to Settings → Job search");
     expect(screen.getByRole("link", { name: "Go to Settings → Job search" })).toHaveAttribute("href", "/settings?section=jobs");
     second.unmount();
 
-    open({ limitReached: true });
-    expect(screen.getByRole("note")).toHaveTextContent("The agent has run 3 times in the past 24 hours");
+    open({}, { limitReached: true });
+    expect(screen.getByRole("note")).toHaveTextContent("This agent has run 3 times in the past 24 hours");
   });
 
   it("says when there's nothing yet", () => {
-    open({ drafts: [], scored: [], belowMinimum: [], lastRun: null, autoDraft: true });
+    open({ drafts: [], scored: [], belowMinimum: [], autoDraft: true }, { lastRun: null });
     expect(screen.getByText("No drafts yet. After a run, the best new postings get a draft here.")).toBeInTheDocument();
     expect(screen.getByText("Nothing waiting yet. A run puts the postings that fit you best here.")).toBeInTheDocument();
     expect(screen.getByText("Last run").nextElementSibling).toHaveTextContent("Not yet");
+  });
+
+  it("lists each agent with its own run, and shows one agent's postings on request", async () => {
+    const user = userEvent.setup();
+    const second: AgentSummary = { ...agent, id: "agent-2", name: "Data analyst", source: "APIFY_INDEED", search: "Data analyst · via Indeed (Apify)", minScore: 80 };
+    render(
+      <AgentScreen
+        view={{
+          ...view,
+          agents: [agent, second],
+          scored: [card("s1", 84), card("s2", 82, { agentId: "agent-2", agentName: "Data analyst" })],
+        }}
+      />,
+    );
+    expect(within(screen.getByRole("list", { name: "Job agents" })).getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent)).toEqual([
+      "Product designer",
+      "Data analyst",
+    ]);
+    expect(screen.getByText("Found by Data analyst")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "1 below their agents' minimum scores · Show" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Data analyst" }));
+    const scored = screen.getByRole("region", { name: "Scored postings" });
+    expect(within(scored).getAllByRole("heading", { level: 3 }).map((heading) => heading.textContent)).toEqual(["Posting s2"]);
+    await user.click(screen.getByRole("button", { name: "Run now Data analyst" }));
+    expect(runAgentNow).toHaveBeenCalledWith({ agentId: "agent-2" });
+  });
+
+  it("points to Settings when there's no agent yet", () => {
+    open({ agents: [] });
+    expect(screen.getByRole("link", { name: "Add one in Settings → Job agent" })).toHaveAttribute("href", "/settings?section=agent");
   });
 });

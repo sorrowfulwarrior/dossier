@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { RadioGroup } from "radix-ui";
 import { useId, useState } from "react";
 
@@ -11,8 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { SegmentedControl } from "@/components/ui/segmented-control";
-import { JOB_SOURCES, type JobSource, type JSearchHost } from "@/lib/job-search/search";
-import { FREEHIRE_URL, JSEARCH_KEY_URLS, SOURCE_INFO, type JobSearchSettingsView } from "@/lib/job-search/sources";
+import { isApifySource, JOB_SOURCES, type JobSource, type JSearchHost } from "@/lib/job-search/search";
+import { JOB_KEY_UNREADABLE, JSEARCH_KEY_URLS, SOURCE_INFO, type JobKeyState, type JobSearchSettingsView } from "@/lib/job-search/sources";
 import { cn } from "@/lib/cn";
 
 import { saveJobSearchDetails, saveJobSource, saveJobSourceKey, testJobSource } from "./actions";
@@ -25,7 +26,7 @@ const CHOICES: readonly { value: Choice; name: string; description: string; tag:
   { value: "OFF", name: "Off", description: "Find jobs stays off, and no search leaves your server.", tag: "Nothing is sent anywhere" },
 ];
 
-type Connection =
+export type Connection =
   | { status: "untested" }
   | { status: "testing" }
   | { status: "connected"; seconds: number }
@@ -169,14 +170,16 @@ export function JobSearchSection({ initial }: { initial: JobSearchSettingsView }
             {source === "ARBEITSAGENTUR" && (
               <>
                 <ArbeitsagenturNote accepted={Boolean(view.arbeitsagentur.acceptedAt)} onAccept={acceptArbeitsagentur} />
-                <p className="text-sm text-muted">No key needed. The job agent doesn&apos;t search this source; choose JSearch, Adzuna or FreeHire for it.</p>
+                <p className="text-sm text-muted">No key needed. The job agent doesn&apos;t search this source; choose another for it.</p>
               </>
             )}
-            {source === "FREEHIRE" && (
+            {isApifySource(source) && (
               <p className="text-sm text-muted">
-                {view.freehire.host === new URL(FREEHIRE_URL).host
-                  ? `No key needed. Dossier searches FreeHire's public catalogue at ${view.freehire.host}.`
-                  : `No key needed. Dossier searches your own FreeHire at ${view.freehire.host}.`}
+                {view.apify.keyState === "none" ? "Add your Apify token" : "Your Apify token and how many results a run may ask for are"} in{" "}
+                <Link href="/settings?section=agent" className="font-medium text-ink underline underline-offset-2">
+                  Settings → Job agent → Apify
+                </Link>
+                . Each search runs the scraper once, at most {view.apify.maxResults} results, paid on your Apify account.
               </p>
             )}
 
@@ -216,15 +219,78 @@ function HostChoice({ host, onChange }: { host: JSearchHost; onChange: (host: JS
   );
 }
 
-function ConnectionStatus({ connection, source }: { connection: Connection; source: JobSource }) {
+/** A write-only key: saved when you leave the field or press Enter, then only "Saved" shows. */
+export function KeyField({
+  label,
+  keyState,
+  envName,
+  getKey,
+  onSave,
+}: {
+  label: string;
+  keyState: JobKeyState;
+  envName: string;
+  getKey: { href: string; text: string };
+  onSave: (change: { action: "set"; value: string } | { action: "clear" }) => Promise<boolean>;
+}) {
+  const [value, setValue] = useState("");
+  const save = async () => {
+    if (!value.trim()) return;
+    if (await onSave({ action: "set", value })) setValue("");
+  };
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Input
+        label={label}
+        type="password"
+        autoComplete="off"
+        value={value}
+        placeholder={
+          keyState === "set" ? "Saved · type a new key to replace it" : keyState === "env" ? `Using ${envName} · type one to save it here` : "Stored encrypted on your server"
+        }
+        error={keyState === "unreadable" ? JOB_KEY_UNREADABLE : undefined}
+        hint={
+          keyState === "none" ? (
+            <>
+              Get one from{" "}
+              <a href={getKey.href} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-ink">
+                {getKey.text}
+              </a>
+              .
+            </>
+          ) : undefined
+        }
+        onChange={(event) => setValue(event.target.value)}
+        onBlur={() => void save()}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && value.trim()) {
+            event.preventDefault();
+            void save();
+          }
+        }}
+      />
+      {(keyState === "set" || keyState === "unreadable") && (
+        <Button variant="text" size="sm" className="self-start" onClick={() => void onSave({ action: "clear" })}>
+          Remove saved key
+        </Button>
+      )}
+    </div>
+  );
+}
+
+export function ConnectionStatus({ connection, source }: { connection: Connection; source: JobSource }) {
   const [dot, text, message] =
     connection.status === "connected"
-      ? ["bg-success", "text-success", `Connected · ${SOURCE_INFO[source].name} answered in ${connection.seconds.toLocaleString("en-US")} s`]
+      ? ["bg-success", "text-success", `Connected · ${isApifySource(source) ? "Apify" : SOURCE_INFO[source].name} answered in ${connection.seconds.toLocaleString("en-US")} s`]
       : connection.status === "failed"
         ? ["bg-error", "text-error", connection.message]
         : connection.status === "testing"
-          ? ["bg-status-offer", "text-muted", "Sending a small search…"]
-          : ["bg-faint", "text-muted", source === "JSEARCH" ? "Not tested since your last change · a test uses one search from your plan" : "Not tested since your last change"];
+          ? ["bg-status-offer", "text-muted", isApifySource(source) ? "Connecting to Apify…" : "Sending a small search…"]
+          : [
+              "bg-faint",
+              "text-muted",
+              source === "JSEARCH" ? "Not tested since your last change · a test uses one search from your plan" : "Not tested since your last change",
+            ];
   return (
     <p role="status" className={cn("flex items-center gap-2 text-control", text)}>
       <span aria-hidden className={cn("size-2 flex-none rounded-full", dot)} />

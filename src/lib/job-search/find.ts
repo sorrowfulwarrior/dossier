@@ -15,14 +15,14 @@ import type { FoundPosting, JobSource, SearchPage, SearchProblem, SearchQuery } 
  */
 export async function askSource(
   query: SearchQuery,
-  { source, next = null }: { source?: JobSource; next?: string | null } = {},
+  { source, next = null, signal }: { source?: JobSource; next?: string | null; signal?: AbortSignal } = {},
 ): Promise<({ ok: true; source: JobSource } & SearchPage) | SearchProblem> {
   const config = await loadJobSearchConfig();
   const from = source ?? config.source;
   if (!from) return { ok: false, problem: "off", message: "Choose where to search in Settings → Job search first." };
   if (!query.country) return { ok: false, problem: "no-country", message: "Choose a country to search in." };
   try {
-    const page = await searchPostings(from, credentialsFor(config, from), query, next, requestContext(from));
+    const page = await searchPostings(from, credentialsFor(config, from), query, next, { ...requestContext(from), signal });
     return { ok: true, source: from, ...page };
   } catch (error) {
     if (error instanceof JobSearchError) return { ok: false, problem: error.problem, message: error.message };

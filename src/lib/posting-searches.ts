@@ -9,6 +9,7 @@ import {
   postingKey,
   searchQuerySchema,
   type FoundPosting,
+  type JobSource,
   type PastSearchDay,
   type SearchProblem,
   type SearchQuery,
@@ -46,8 +47,11 @@ function ranAtLabel(date: Date, timeZone?: string, now = new Date()): string {
 }
 
 /** Runs a search on the chosen source and keeps it with its first page. */
-export async function runSearch(query: SearchQuery): Promise<{ ok: true; id: string } | SearchProblem> {
-  const answer = await askSource(query);
+export async function runSearch(
+  query: SearchQuery,
+  { source, signal }: { source?: JobSource; signal?: AbortSignal } = {},
+): Promise<{ ok: true; id: string } | SearchProblem> {
+  const answer = await askSource(query, { source, signal });
   if (!answer.ok) return answer;
   const search = await prisma.postingSearch.create({
     data: { source: answer.source, query, postings: answer.postings, found: answer.postings.length, next: answer.next },

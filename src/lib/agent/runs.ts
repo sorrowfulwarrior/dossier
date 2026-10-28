@@ -1,11 +1,12 @@
 import "server-only";
 
-import { AGENT_RUNS_KEPT, type AgentRun } from "@/lib/settings";
-import { loadSettings, saveSettings } from "@/lib/settings-data";
+import type { AgentRun } from "@/lib/settings";
 
-// The job agent's runs (E16), kept in Settings rather than as their Job rows,
-// which the task-data sweep deletes after "Keep task data for": the limits
-// below must hold whatever that is set to.
+import { loadAgent, saveAgentRuns } from "./agents";
+
+// Each job agent's runs (E16), kept on its JobAgent row rather than as their
+// Job rows, which the task-data sweep deletes after "Keep task data for":
+// the limits below must hold whatever that is set to. They hold per agent.
 
 /** At most this many runs in any 24 hours, scheduled or Run now. */
 export const AGENT_MAX_RUNS_PER_DAY = 3;
@@ -41,15 +42,17 @@ function waitText(ms: number): string {
 }
 
 /** Records a run as it starts, before it asks the source, so a crash and a retry can't spend the quota twice. */
-export async function recordRunStart(now: Date, manual: boolean): Promise<AgentRun> {
+export async function recordRunStart(agentId: string, now: Date, manual: boolean): Promise<AgentRun> {
   const run: AgentRun = { at: now.toISOString(), manual, message: null };
-  const { agentRuns } = await loadSettings();
-  await saveSettings({ agentRuns: [run, ...agentRuns].slice(0, AGENT_RUNS_KEPT) });
+  const agent = await loadAgent(agentId);
+  await saveAgentRuns(agentId, [run, ...(agent?.runs ?? [])]);
   return run;
 }
 
 /** Notes what a run ended with, for the Agent screen. */
-export async function recordRunEnd(run: AgentRun, message: string): Promise<void> {
-  const { agentRuns } = await loadSettings();
-  await saveSettings({ agentRuns: agentRuns.map((entry) => (entry.at === run.at ? { ...entry, message } : entry)) });
+export async function recordRunEnd(agentId: string, run: AgentRun, message: string): Promise<void> {
+  const agent = await loadAgent(agentId);
+  // Deleted while it ran.
+  if (!agent) return;
+  await saveAgentRuns(agentId, agent.runs.map((entry) => (entry.at === run.at ? { ...entry, message } : entry)));
 }

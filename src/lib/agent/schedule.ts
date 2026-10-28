@@ -7,12 +7,12 @@ import { findUnfinishedJobs, startJob } from "@/lib/jobs/runner";
 import { logServerError } from "@/lib/log";
 import { prisma } from "@/lib/prisma";
 import type { AgentRun } from "@/lib/settings";
-import { loadSettings } from "@/lib/settings-data";
 import { lastKnownTimeZone } from "@/lib/time-zone";
 
-import { AGENT_JOB_KEY, agentScanJob } from "./jobs";
+import { listAgents } from "./agents";
+import { agentJobKey, agentScanJob } from "./jobs";
 
-// The job agent's daily run (E16-4): a timer in this process, like the
+// Each job agent's daily run (E16-4): a timer in this process, like the
 // nightly backups and the inbox check, so it's only right with one instance.
 // Every 15 minutes it starts the day's run once the chosen hour has come, in
 // the user's time zone, not the server's (usually UTC in Docker).
@@ -45,13 +45,19 @@ export function nextAgentRun(now: Date, hour: number, timeZone: string, runs: re
   return dueOn(addDays(today, 1), hour, timeZone);
 }
 
-/** Starts the day's run when it's due and none is queued or running. */
-export async function startDueRun(now = new Date()): Promise<string | null> {
-  const settings = await loadSettings();
-  if (!settings.agentEnabled) return null;
-  if (!scheduledRunDue(now, settings.agentHour, await lastKnownTimeZone(), settings.agentRuns)) return null;
-  if ((await findUnfinishedJobs(AGENT_JOB_KEY)).length > 0) return null;
-  return startJob(agentScanJob, { manual: false }, { key: AGENT_JOB_KEY });
+/** Starts each agent's run for the day when it's due and none of its runs is queued or running; gives the jobs started. */
+export async function startDueRuns(now = new Date()): Promise<string[]> {
+  const agents = (await listAgents()).filter((agent) => agent.enabled);
+  if (agents.length === 0) return [];
+  const timeZone = await lastKnownTimeZone();
+  const started: string[] = [];
+  for (const agent of agents) {
+    if (!scheduledRunDue(now, agent.hour, timeZone, agent.runs)) continue;
+    const key = agentJobKey(agent.id);
+    if ((await findUnfinishedJobs(key)).length > 0) continue;
+    started.push(await startJob(agentScanJob, { agentId: agent.id, manual: false }, { key }));
+  }
+  return started;
 }
 
 /** After a restart, a candidate left DRAFTING has no job to finish it. */
@@ -69,7 +75,7 @@ const globalForAgent = globalThis as unknown as { agentTimer?: ReturnType<typeof
 export function startAgentSchedule(): void {
   if (globalForAgent.agentTimer) return;
   void resetInterruptedDrafts().catch((error: unknown) => logServerError("job agent", error));
-  const check = () => void startDueRun().catch((error: unknown) => logServerError("job agent schedule", error));
+  const check = () => void startDueRuns().catch((error: unknown) => logServerError("job agent schedule", error));
   globalForAgent.agentTimer = setInterval(check, EVERY_MS);
   // Don't keep the process alive just for this.
   globalForAgent.agentTimer.unref?.();

@@ -2,24 +2,26 @@ import { expect, test } from "@playwright/test";
 
 import { fakeJobSearches, resetData, sql } from "./support";
 
-// The job agent end to end (E16): turned on in Settings, run now against the
+// The job agent end to end (E16): added and turned on in Settings, run now against the
 // fake JSearch and the fake AI, a draft prepared and approved, a posting
 // dismissed, and a second run that brings none of them back.
 test.beforeAll(resetData);
 // Off again, so its timer leaves the other specs alone.
 test.afterAll(async () => {
-  await sql(`DELETE FROM "Setting" WHERE key LIKE 'agent%'`);
   await sql(`DELETE FROM "AgentCandidate"`);
+  await sql(`DELETE FROM "JobAgent"`);
 });
 
 const card = (page: import("@playwright/test").Page, title: string) => page.getByRole("listitem").filter({ has: page.getByRole("heading", { level: 3, name: title }) });
 
 test("finds, scores, drafts and dismisses, and never brings a posting back", async ({ page }) => {
   await page.goto("/settings?section=agent");
+  await page.getByRole("button", { name: "Add agent" }).click();
   await page.getByLabel("What").fill("Product designer");
   await page.getByLabel("Country").selectOption("nl");
-  await page.getByRole("switch", { name: "Run the job agent" }).click();
-  await expect(page.getByRole("switch", { name: "Run the job agent" })).toHaveAttribute("aria-checked", "true");
+  await page.getByLabel("Source").selectOption("JSEARCH");
+  await page.getByRole("switch", { name: "Run Product designer" }).click();
+  await expect(page.getByRole("switch", { name: "Run Product designer" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByText("All changes saved")).toBeVisible();
 
   // Run now: one search, three postings scored, two in the queue.
@@ -64,7 +66,7 @@ test("finds, scores, drafts and dismisses, and never brings a posting back", asy
 
   // A later run brings none of them back…
   const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-  await sql(`UPDATE "Setting" SET value = $1 WHERE key = 'agentRuns'`, [JSON.stringify([{ at: twoHoursAgo, manual: true, message: null }])]);
+  await sql(`UPDATE "JobAgent" SET runs = $1::jsonb`, [JSON.stringify([{ at: twoHoursAgo, manual: true, message: null }])]);
   await page.reload();
   await page.getByRole("button", { name: "Run now" }).click();
   await expect(page.getByText("No new postings this time.").first()).toBeVisible({ timeout: 30_000 });
