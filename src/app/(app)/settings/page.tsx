@@ -2,8 +2,11 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 
 import { isAiConfigured, loadAiConfig, loadAiSettingsView } from "@/lib/ai/config";
-import { jobSearchView, loadJobSearchConfig } from "@/lib/job-search/config";
+import { listAgents } from "@/lib/agent/agents";
+import { jobSearchView, loadJobSearchConfig, sourceReady } from "@/lib/job-search/config";
 import { COUNTRIES } from "@/lib/job-search/countries";
+import { EMPTY_QUERY, JOB_SOURCES } from "@/lib/job-search/search";
+import { SOURCE_INFO } from "@/lib/job-search/sources";
 import { loadSearch } from "@/lib/posting-searches";
 import { providerOption } from "@/lib/ai/provider-options";
 import { lastNightlyBackup } from "@/lib/backup-schedule";
@@ -53,22 +56,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
       ) : section === "jobs" ? (
         <JobSearchSection initial={jobSearchView(await loadJobSearchConfig())} />
       ) : section === "agent" ? (
-        <AgentSection
-          initial={{
-            enabled: settings.agentEnabled,
-            // With no search of its own yet, it starts from the last one in Find jobs.
-            query: settings.agentQuery.keywords.trim() ? settings.agentQuery : ((await loadSearch())?.query ?? settings.agentQuery),
-            hour: settings.agentHour,
-            minScore: settings.agentMinScore,
-            maxScores: settings.agentMaxScores,
-            maxDrafts: settings.agentMaxDrafts,
-            autoDraft: settings.agentAutoDraft,
-          }}
-          source={(await loadJobSearchConfig()).source}
-          aiReady={await isAiConfigured()}
-          countries={COUNTRIES}
-          timeZone={await lastKnownTimeZone()}
-        />
+        await agentSection()
       ) : section === "google" ? (
         <>
           <GoogleNotice outcome={typeof params.google === "string" ? params.google : null} />
@@ -97,7 +85,7 @@ export default async function SettingsPage({ searchParams }: PageProps<"/setting
         <ConnectorSection initial={{ on: settings.connectorEnabledAt !== null }} address={mcpUrl(env.DOSSIER_PUBLIC_URL ?? (await requestOrigin()))} />
       ) : section === "data" ? (
         <DataSection
-          hasApiKey={[settings.apiKeyEnc, settings.jsearchKeyEnc, settings.adzunaKeyEnc].some((key) => key !== null)}
+          hasApiKey={[settings.apiKeyEnc, settings.jsearchKeyEnc, settings.adzunaKeyEnc, settings.apifyTokenEnc].some((key) => key !== null)}
           exportName={exportFileName()}
           backups={{
             on: settings.nightlyBackup,
@@ -216,4 +204,38 @@ async function aboutFacts(): Promise<AboutFacts> {
 async function usagePingView(): Promise<UsagePingView> {
   const settings = await loadSettings();
   return { host: USAGE_PING_HOST, ...usagePingChoice(settings), id: settings.usagePingId, production: process.env.NODE_ENV === "production" };
+}
+
+/** Settings → Job agent: the agents, the sources they may search, and Apify's token. */
+async function agentSection() {
+  const [agents, config] = await Promise.all([listAgents(), loadJobSearchConfig()]);
+  // A job agent searches on its own, which the BA's terms forbid most clearly (#223).
+  const sources = JOB_SOURCES.filter((source) => source !== "ARBEITSAGENTUR").map((source) => ({
+    source,
+    name: SOURCE_INFO[source].name,
+    ready: sourceReady(config, source),
+  }));
+  return (
+    <AgentSection
+      agents={agents.map((agent) => ({
+        id: agent.id,
+        name: agent.name,
+        source: agent.source,
+        enabled: agent.enabled,
+        query: agent.query,
+        hour: agent.hour,
+        minScore: agent.minScore,
+        maxScores: agent.maxScores,
+        maxDrafts: agent.maxDrafts,
+        autoDraft: agent.autoDraft,
+      }))}
+      sources={sources}
+      // A new agent starts from the last search in Find jobs.
+      newQuery={(await loadSearch())?.query ?? EMPTY_QUERY}
+      aiReady={await isAiConfigured()}
+      countries={COUNTRIES}
+      timeZone={await lastKnownTimeZone()}
+      apify={{ keyState: config.apify.keyState, maxResults: config.apify.maxResults }}
+    />
+  );
 }

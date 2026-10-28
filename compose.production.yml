@@ -51,6 +51,8 @@ services:
       DOSSIER_JSEARCH_HOST: ${DOSSIER_JSEARCH_HOST:-}
       DOSSIER_ADZUNA_APP_ID: ${DOSSIER_ADZUNA_APP_ID:-}
       DOSSIER_ADZUNA_KEY: ${DOSSIER_ADZUNA_KEY:-}
+      # LinkedIn and Indeed through Apify (or enter it in Settings → Job agent → Apify).
+      DOSSIER_APIFY_TOKEN: ${DOSSIER_APIFY_TOKEN:-}
       # Gmail and Calendar: a Google OAuth client (or enter it in Settings → Google).
       DOSSIER_GOOGLE_CLIENT_ID: ${DOSSIER_GOOGLE_CLIENT_ID:-}
       DOSSIER_GOOGLE_CLIENT_SECRET: ${DOSSIER_GOOGLE_CLIENT_SECRET:-}

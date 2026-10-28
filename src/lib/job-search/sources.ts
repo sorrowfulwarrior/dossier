@@ -10,7 +10,19 @@ export type JobSearchSettingsView = {
   adzuna: { appId: string; keyState: JobKeyState };
   /** Whether this server offers the Bundesagentur für Arbeit, and when its note was accepted (#223). */
   arbeitsagentur: { offered: boolean; acceptedAt: string | null };
+  /** One token for both Apify actors, and the most results a run asks for. */
+  apify: { keyState: JobKeyState; maxResults: number };
 };
+
+/** Where to get an Apify token. */
+export const APIFY_TOKEN_URL = "https://console.apify.com/settings/integrations";
+/** The two scrapers' pages in the Apify Store. */
+export const APIFY_ACTOR_URLS = {
+  APIFY_LINKEDIN: "https://apify.com/curious_coder/linkedin-jobs-scraper",
+  APIFY_INDEED: "https://apify.com/curious_coder/indeed-scraper",
+} as const;
+/** The results a run may ask for, in Settings → Job agent → Apify. */
+export const APIFY_MAX_RESULTS = [10, 25, 50, 100] as const;
 
 export const JOB_KEY_UNREADABLE = "Your saved key can't be read. Please enter it again.";
 
@@ -74,6 +86,26 @@ export const SOURCE_INFO: Record<JobSource, SourceInfo> = {
     attribution: "Source: Bundesagentur für Arbeit",
     attributionLink: null,
     countries: ["de"],
+  },
+  APIFY_LINKEDIN: {
+    name: "LinkedIn (Apify)",
+    description: "LinkedIn's own job search, scraped by curious_coder/linkedin-jobs-scraper on your Apify account. A run takes a minute or two.",
+    tag: "Most countries · paid per result on Apify",
+    keyUrl: APIFY_TOKEN_URL,
+    quotaPeriod: null,
+    attribution: null,
+    attributionLink: null,
+    countries: null,
+  },
+  APIFY_INDEED: {
+    name: "Indeed (Apify)",
+    description: "Indeed's job search, scraped by curious_coder/indeed-scraper on your Apify account. A run takes a minute or two.",
+    tag: "Most countries · paid per result on Apify",
+    keyUrl: APIFY_TOKEN_URL,
+    quotaPeriod: null,
+    attribution: null,
+    attributionLink: null,
+    countries: null,
   },
 };
 

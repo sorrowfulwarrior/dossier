@@ -70,7 +70,7 @@ describe("Find jobs actions", () => {
     stubFetch(() => json({ ...jsearchV2LastPage, data: { ...jsearchV2LastPage.data, cursor: "MORE" } }));
     const run = await runJobSearch({ query });
     expect(run).toEqual({ ok: true, data: { ok: true, id: expect.any(String) } });
-    const id = run.ok && run.data.ok ? run.data.id : "";
+    const id = run.ok && run.data.ok && "id" in run.data ? run.data.id : "";
 
     stubFetch(() => json(jsearchV2LastPage));
     expect(await showMorePostings({ searchId: id })).toEqual({ ok: true, data: { ok: true, postings: [], next: null } });

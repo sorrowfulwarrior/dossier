@@ -580,6 +580,10 @@ enum PostingSource {
   JSEARCH
   ADZUNA
   ARBEITSAGENTUR
+  /// Apify's curious_coder/linkedin-jobs-scraper, through Apify's MCP server.
+  APIFY_LINKEDIN
+  /// Apify's curious_coder/indeed-scraper, through Apify's MCP server.
+  APIFY_INDEED
 }
 
 /// A posting from Find jobs that the user kept (E14-5): saved, dismissed, or
@@ -635,6 +639,35 @@ model ClaudePaste {
 
 // ─── Job agent (E16) ─────────────────────────────────────────────────────────
 
+/// One job agent: a search for one job title, on a source of its own, run
+/// once a day. There can be several; each keeps its own runs and limits.
+model JobAgent {
+  id         String           @id @default(cuid())
+  name       String           @default("")
+  source     PostingSource
+  /// The search it runs, as Find jobs asks it (searchQuerySchema).
+  query      Json
+  enabled    Boolean          @default(false)
+  /// The hour of the day it runs, in the user's time zone.
+  hour       Int              @default(7)
+  /// Postings scored below this stay out of the queue.
+  minScore   Int              @default(70)
+  /// The most postings a run scores, and the most drafts it prepares on its own.
+  maxScores  Int              @default(15)
+  maxDrafts  Int              @default(3)
+  /// Whether a run prepares drafts for its best postings (off by default, #197).
+  autoDraft  Boolean          @default(false)
+  /// The latest runs, newest first (agentRunSchema): the daily limit counts these.
+  runs       Json             @default("[]")
+  /// Where it's listed.
+  position   Int              @default(0)
+  candidates AgentCandidate[]
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  @@index([position])
+}
+
 /// A posting the job agent found and scored, and the draft it prepared from
 /// it. Kept after it's dismissed, trimmed to what dedupe needs, so the same
 /// posting never comes back.
@@ -667,6 +700,9 @@ model AgentCandidate {
   /// The tailored draft made from it.
   applicationId String?              @unique
   application   Application?         @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  /// The agent that found it; null once that agent is deleted.
+  agentId       String?
+  agent         JobAgent?            @relation(fields: [agentId], references: [id], onDelete: SetNull)
   /// A hash of the link without tracking parameters, else of company, title
   /// and place: the same job from another source or a later run matches.
   dedupeKey     String               @unique
@@ -675,6 +711,7 @@ model AgentCandidate {
 
   @@unique([source, externalId])
   @@index([status, score])
+  @@index([agentId])
   @@index([createdAt])
 }
 

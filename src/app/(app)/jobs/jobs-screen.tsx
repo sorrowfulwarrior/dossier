@@ -8,9 +8,12 @@ import { ArbeitsagenturNote } from "@/components/arbeitsagentur-note";
 import { PageHeader } from "@/components/page-header";
 import { toast, toastResult } from "@/components/toast";
 import { Button, buttonClassName } from "@/components/ui/button";
+import { Select } from "@/components/ui/select";
+import { useJob } from "@/hooks/use-job";
 import { cn } from "@/lib/cn";
 import type { Country } from "@/lib/job-search/countries";
 import {
+  isApifySource,
   searchHref,
   searchRunHref,
   viewHref,
@@ -29,9 +32,17 @@ import { PastSearches } from "./past-searches";
 import { PostingResults } from "./posting-results";
 import { RemoteOnlyField, SearchFields, uncoveredCountry } from "./search-fields";
 
+/** A source Find jobs may search, with its key in place. */
+export type SearchSourceChoice = { source: JobSource; name: string };
+
+/** An Apify search's job: kept, or what went wrong. */
+type ApifySearchResult = { ok: true; id: string } | Problem;
+
 export type JobsScreenProps = {
   /** The source chosen in Settings; null while job search is off. */
   source: JobSource | null;
+  /** The sources that can be searched here instead: the one in Settings, and the others with a key, such as LinkedIn and Indeed on Apify. */
+  sources?: readonly SearchSourceChoice[];
   /** The Bundesagentur für Arbeit is chosen, but its note isn't accepted yet: it isn't searched until then (#223). */
   arbeitsagenturNote?: boolean;
   /** Score opens a Claude chat, which scores through the connector (#221). */
@@ -60,7 +71,8 @@ const SETTINGS_HREF = "/settings?section=jobs";
 
 /** Find jobs (E14-6, E14-7, E14-10): the search form and a kept search's postings, past searches, or the postings kept from them. */
 export function JobsScreen({
-  source,
+  source: chosenInSettings,
+  sources = [],
   arbeitsagenturNote = false,
   scoreInClaude = false,
   countries,
@@ -74,9 +86,22 @@ export function JobsScreen({
   today,
 }: JobsScreenProps) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const [starting, startTransition] = useTransition();
   // A search that didn't work, with what was asked, for Try again.
   const [failed, setFailed] = useState<{ problem: Problem; query: SearchQuery } | null>(null);
+  const [source, setSource] = useState<JobSource | null>(chosenInSettings ?? sources[0]?.source ?? null);
+  // An Apify search runs as a job: followed here, then opened like any other.
+  const [searchJob, setSearchJob] = useState<{ id: string; query: SearchQuery } | null>(null);
+  const job = useJob<ApifySearchResult>(searchJob?.id ?? null, 0, (update) => {
+    if (!searchJob || (update.status !== "DONE" && update.status !== "FAILED")) return;
+    const asked = searchJob.query;
+    setSearchJob(null);
+    if (update.status === "FAILED" || !update.result) return void toast(update.error ?? "The search didn't finish. Try again.");
+    if (!update.result.ok) return void setFailed({ problem: update.result, query: asked });
+    setFailed(null);
+    router.push(searchRunHref(update.result.id), { scroll: false });
+  });
+  const pending = starting || searchJob !== null;
   const header = (
     <>
       <PageHeader
@@ -117,10 +142,11 @@ export function JobsScreen({
   // Each search is kept and gets its own history entry, so Back returns to it without asking the source again.
   const run = (next: SearchQuery) =>
     startTransition(async () => {
-      const result = await runJobSearch({ query: next });
+      const result = await runJobSearch({ query: next, source });
       if (!result.ok) return void toast(result.error);
       if (!result.data.ok) return void setFailed({ problem: result.data, query: next });
       setFailed(null);
+      if ("jobId" in result.data) return void setSearchJob({ id: result.data.jobId, query: next });
       router.push(searchRunHref(result.data.id), { scroll: false });
     });
 
@@ -137,10 +163,26 @@ export function JobsScreen({
     <>
       {header}
       {arbeitsagenturNote && <ArbeitsagenturNote accepted={false} onAccept={acceptArbeitsagentur} className="mx-10 mb-5 max-w-[760px]" />}
-      <SearchForm source={source} countries={countries} query={query} pending={pending} onSearch={run} />
+      <SearchForm
+        source={source}
+        sources={sources}
+        onSourceChange={(next) => {
+          setSource(next);
+          setFailed(null);
+        }}
+        countries={countries}
+        query={query}
+        pending={pending}
+        onSearch={run}
+      />
+      {searchJob && (
+        <p className="mx-10 -mt-3 mb-6 text-meta text-muted" aria-hidden>
+          {job?.step ?? "Starting the search…"} You can leave this page; it&apos;s kept under Past searches when it&apos;s done.
+        </p>
+      )}
       {/* Announces each new set of results; the list itself is replaced. */}
       <p role="status" className="sr-only">
-        {pending ? "Searching…" : failed ? failed.problem.message : search ? `${search.postings.length} postings found.` : ""}
+        {searchJob ? (job?.step ?? "Searching…") : pending ? "Searching…" : failed ? failed.problem.message : search ? `${search.postings.length} postings found.` : ""}
       </p>
       <div className={cn("flex flex-1 flex-col motion-safe:transition-opacity", pending && "opacity-60")} aria-busy={pending || undefined}>
         {failed ? (
@@ -169,12 +211,16 @@ export function JobsScreen({
 
 function SearchForm({
   source,
+  sources,
+  onSourceChange,
   countries,
   query,
   pending,
   onSearch,
 }: {
   source: JobSource;
+  sources: readonly SearchSourceChoice[];
+  onSourceChange: (source: JobSource) => void;
   countries: readonly Country[];
   query: SearchQuery;
   pending: boolean;
@@ -216,9 +262,26 @@ function SearchForm({
       <SearchFields value={form} onChange={set} source={source} countries={countries} errors={errors} />
       <div className="flex flex-wrap items-center justify-between gap-4 sm:col-span-2 lg:col-span-5">
         <RemoteOnlyField value={form} onChange={set} source={source} />
-        <Button type="submit" aria-disabled={pending || undefined}>
-          {pending ? "Searching…" : "Search"}
-        </Button>
+        <div className="flex flex-wrap items-end gap-3">
+          {sources.length > 1 && (
+            <Select
+              label="Search on"
+              className="min-w-[190px]"
+              value={source}
+              hint={isApifySource(source) ? "Runs on Apify, paid per result; takes a minute or two." : undefined}
+              onChange={(event) => onSourceChange(event.target.value as JobSource)}
+            >
+              {sources.map((choice) => (
+                <option key={choice.source} value={choice.source}>
+                  {choice.name}
+                </option>
+              ))}
+            </Select>
+          )}
+          <Button type="submit" aria-disabled={pending || undefined}>
+            {pending ? "Searching…" : "Search"}
+          </Button>
+        </div>
       </div>
     </form>
   );

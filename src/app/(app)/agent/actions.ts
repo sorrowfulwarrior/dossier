@@ -5,67 +5,88 @@ import { z } from "zod";
 
 import { AgentCandidateStatus } from "@/generated/prisma/enums";
 import { agentDraftJob, approveCandidate, dismissCandidate, draftJobKey, restoreCandidate } from "@/lib/agent/draft";
-import { AGENT_JOB_KEY, agentScanJob } from "@/lib/agent/jobs";
+import { agentChangesSchema, createAgent, deleteAgent, listAgents, loadAgent, MAX_AGENTS, updateAgent, type Agent } from "@/lib/agent/agents";
+import { agentJobKey, agentScanJob } from "@/lib/agent/jobs";
 import { agentQueryReady, agentSetupProblem } from "@/lib/agent/run";
 import { runLimitProblem } from "@/lib/agent/runs";
 import { action, ActionError } from "@/lib/action";
-import { safeLink, searchQuerySchema } from "@/lib/job-search/search";
-import { findUnfinishedJobs, startJob } from "@/lib/jobs/runner";
+import { JOB_SOURCES, safeLink, searchQuerySchema } from "@/lib/job-search/search";
+import { cancelJob, findUnfinishedJobs, startJob } from "@/lib/jobs/runner";
 import { prisma } from "@/lib/prisma";
-import { loadSettings, saveSettings } from "@/lib/settings-data";
 
 // The Agent screen's actions (E16). Nothing here ever sends anything:
 // approving only makes a draft a normal Draft application.
 
+const agentId = z.string().min(1).max(100);
+
+/** The agent, or an error saying it's gone. */
+async function agentOrError(id: string): Promise<Agent> {
+  const agent = await loadAgent(id);
+  if (!agent) throw new ActionError("That job agent was deleted.");
+  return agent;
+}
+
+/** What Settings → Job agent shows of an agent, and every screen it shows on. */
+function revalidateAgents() {
+  revalidatePath("/agent");
+  revalidatePath("/settings");
+}
+
 /**
- * Settings → Job agent (E16-7): each change saves at once. Turning the agent
- * on needs a search with keywords and a country.
+ * Add agent in Settings → Job agent: a new one, off, searching `query` on
+ * `source`, so each job title gets one. At most MAX_AGENTS.
  */
-export const saveAgentSettings = action(
-  z.object({
-    enabled: z.boolean().optional(),
-    query: searchQuerySchema.optional(),
-    hour: z.number().int().min(0).max(23).optional(),
-    minScore: z.number().int().min(0).max(100).optional(),
-    maxScores: z.number().int().min(1).max(30).optional(),
-    maxDrafts: z.number().int().min(0).max(10).optional(),
-    autoDraft: z.boolean().optional(),
-  }),
-  async (changes) => {
-    const settings = await loadSettings();
-    const query = changes.query ?? settings.agentQuery;
-    if (changes.enabled && !agentQueryReady(query)) {
-      throw new ActionError(query.keywords.trim() ? "Choose a country for the search before turning the agent on." : "Type what the agent should look for before turning it on.");
-    }
-    await saveSettings({
-      agentEnabled: changes.enabled,
-      agentQuery: changes.query,
-      agentHour: changes.hour,
-      agentMinScore: changes.minScore,
-      agentMaxScores: changes.maxScores,
-      agentMaxDrafts: changes.maxDrafts,
-      agentAutoDraft: changes.autoDraft,
-    });
-    revalidatePath("/agent");
-    return null;
+export const createJobAgent = action(
+  z.object({ source: z.enum(JOB_SOURCES), query: searchQuerySchema, name: z.string().trim().max(100).optional() }),
+  async ({ source, query, name }) => {
+    if ((await listAgents()).length >= MAX_AGENTS) throw new ActionError(`You can have up to ${MAX_AGENTS} job agents. Delete one first.`);
+    const agent = await createAgent({ source, query, name });
+    revalidateAgents();
+    return agent;
   },
 );
 
 /**
- * Run now (E16-4): one more run, at most once an hour after the previous
- * one and within the daily limit. A run already queued or running is
- * reused rather than started again.
+ * Settings → Job agent (E16-7): each change to an agent saves at once.
+ * Turning one on needs a search with keywords and a country.
  */
-export const runAgentNow = action(z.object({}), async () => {
-  const settings = await loadSettings();
-  if (!settings.agentEnabled) throw new ActionError("Turn the job agent on in Settings → Job agent first.");
-  const setup = await agentSetupProblem(settings.agentQuery);
+export const saveJobAgent = action(agentChangesSchema.extend({ id: agentId }), async ({ id, ...changes }) => {
+  const agent = await agentOrError(id);
+  const query = changes.query ?? agent.query;
+  if (changes.enabled && !agentQueryReady(query)) {
+    throw new ActionError(query.keywords.trim() ? "Choose a country for the search before turning the agent on." : "Type what the agent should look for before turning it on.");
+  }
+  if (changes.source === "ARBEITSAGENTUR") throw new ActionError("The job agent doesn't search the Bundesagentur für Arbeit. Choose another source.");
+  const saved = await updateAgent(id, changes);
+  revalidateAgents();
+  return saved;
+});
+
+/** Deletes an agent and stops its run; what it found stays on the Agent screen, so it doesn't come back. */
+export const deleteJobAgent = action(z.object({ id: agentId }), async ({ id }, { toast }) => {
+  for (const job of await findUnfinishedJobs(agentJobKey(id))) await cancelJob(job.id);
+  await deleteAgent(id);
+  revalidateAgents();
+  toast("Job agent deleted. What it found stays on the Agent screen.");
+  return null;
+});
+
+/**
+ * Run now (E16-4): one more run of an agent, at most once an hour after its
+ * previous one and within its daily limit. A run already queued or running
+ * is reused rather than started again.
+ */
+export const runAgentNow = action(z.object({ agentId }), async ({ agentId: id }) => {
+  const agent = await agentOrError(id);
+  if (!agent.enabled) throw new ActionError("Turn this job agent on in Settings → Job agent first.");
+  const setup = await agentSetupProblem(agent);
   if (setup) throw new ActionError(setup);
-  const [unfinished] = await findUnfinishedJobs(AGENT_JOB_KEY);
+  const key = agentJobKey(agent.id);
+  const [unfinished] = await findUnfinishedJobs(key);
   if (unfinished) return { jobId: unfinished.id, reused: true };
-  const limit = runLimitProblem(settings.agentRuns, new Date(), { manual: true });
+  const limit = runLimitProblem(agent.runs, new Date(), { manual: true });
   if (limit) throw new ActionError(limit);
-  const jobId = await startJob(agentScanJob, { manual: true }, { key: AGENT_JOB_KEY });
+  const jobId = await startJob(agentScanJob, { agentId: agent.id, manual: true }, { key });
   revalidatePath("/agent");
   return { jobId, reused: false };
 });

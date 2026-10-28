@@ -159,11 +159,20 @@ describe("job search settings (E14-4)", () => {
         jsearch: { host: "openwebninja", keyState: "none" },
         adzuna: { appId: "", keyState: "none" },
         arbeitsagentur: { offered: true, acceptedAt: null },
+        apify: { keyState: "none", maxResults: 25 },
       },
     });
     await saveJobSource({ source: "OFF" });
     expect((await settings()).jobSource).toBe("OFF");
     expect(await saveJobSource({ source: "LINKEDIN" as never })).toMatchObject({ ok: false });
+  });
+
+  it("saves the Apify token encrypted, and the results a run may ask for", async () => {
+    const saved = await saveJobSourceKey({ source: "APIFY", change: { action: "set", value: "apify_api_123" } });
+    expect(saved).toMatchObject({ ok: true, data: { apify: { keyState: "set", maxResults: 25 } } });
+    expect((await settings()).apifyTokenEnc).not.toContain("apify_api_123");
+    expect(await saveJobSearchDetails({ apifyMaxResults: 50 })).toMatchObject({ ok: true, data: { apify: { keyState: "set", maxResults: 50 } } });
+    expect(await saveJobSearchDetails({ apifyMaxResults: 1000 as never })).toMatchObject({ ok: false });
   });
 
   it("saves the Bundesagentur für Arbeit only with its note accepted (#223)", async () => {

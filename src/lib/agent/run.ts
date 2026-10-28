@@ -12,21 +12,23 @@ import { scorePosting } from "@/lib/ai/tasks";
 import { searchPostings } from "@/lib/job-search";
 import { credentialsFor, loadJobSearchConfig, requestContext } from "@/lib/job-search/config";
 import { JobSearchError } from "@/lib/job-search/errors";
-import { postingKey, postingText, type FoundPosting, type SearchQuery } from "@/lib/job-search/search";
+import { isApifySource, postingKey, postingText, type FoundPosting, type JobSource, type SearchQuery } from "@/lib/job-search/search";
+import { SOURCE_INFO } from "@/lib/job-search/sources";
 import { startJob, type JobContext } from "@/lib/jobs/runner";
 import { logServerError } from "@/lib/log";
 import { saveScore } from "@/lib/posting-scores";
 import { postingStates } from "@/lib/postings";
 import { prisma } from "@/lib/prisma";
 import { loadProfile } from "@/lib/profile-data";
-import { loadSettings } from "@/lib/settings-data";
 
+import { loadAgent } from "./agents";
 import { agentDedupeKey, candidateData } from "./candidates";
 import { agentDraftJob, draftJobKey } from "./draft";
 import { recordRunEnd, recordRunStart, runLimitProblem } from "./runs";
 
-// One run of the job agent (E16-3): one search, the postings seen before
-// dropped, and a score for the newest of the rest. It never sends anything.
+// One run of a job agent (E16-3): its one search, on its own source, the
+// postings seen before (by any agent) dropped, and a score for the newest of
+// the rest. It never sends anything.
 // Adapted from avinashbatchala's fork of Dossier.
 
 export const agentScanResultSchema = z.object({
@@ -48,17 +50,16 @@ const stopped = (message: string): AgentScanResult => ({ found: 0, fresh: 0, sco
 /** Whether a search is complete enough to run: keywords and a country. */
 export const agentQueryReady = (query: SearchQuery) => Boolean(query.keywords.trim() && query.country);
 
-/** Why the agent can't run at all, in words, or null when it's set up. */
-export async function agentSetupProblem(query: SearchQuery): Promise<string | null> {
+/** Why an agent can't run at all, in words, or null when it's set up. */
+export async function agentSetupProblem({ query, source }: { query: SearchQuery; source: JobSource }): Promise<string | null> {
   if (!query.keywords.trim()) return "Add what to look for in Settings → Job agent first.";
   if (!query.country) return "Choose a country for the search in Settings → Job agent first.";
   if (!(await isAiConfigured())) return "Choose an AI provider in Settings → AI provider first.";
-  const config = await loadJobSearchConfig();
-  if (!config.source) return "Choose a job source in Settings → Job search first.";
   // It searches on its own, which the BA's terms forbid most clearly (#223).
-  if (config.source === "ARBEITSAGENTUR") return "The job agent doesn't search the Bundesagentur für Arbeit. Choose JSearch or Adzuna in Settings → Job search for it.";
+  if (source === "ARBEITSAGENTUR") return "The job agent doesn't search the Bundesagentur für Arbeit. Choose another source for it in Settings → Job agent first.";
+  const config = await loadJobSearchConfig();
   try {
-    credentialsFor(config, config.source);
+    credentialsFor(config, source);
   } catch (error) {
     if (error instanceof JobSearchError) return error.message;
     throw error;
@@ -91,33 +92,35 @@ const newestFirst = (a: FoundPosting, b: FoundPosting) => (b.postedAt ? Date.par
 
 /**
  * One run: the first page of results only (one source request), then a
- * score for the newest new postings, up to agentMaxScores. Each is kept as a
- * candidate, so it doesn't come back; one below agentMinScore stays out of
- * the queue. With auto-draft on, the best of them get a draft each, up to
- * agentMaxDrafts, each its own job. A scheduled run does nothing while the
+ * score for the newest new postings, up to the agent's maxScores. Each is
+ * kept as a candidate, so it doesn't come back; one below its minScore stays
+ * out of the queue. With auto-draft on, the best of them get a draft each, up
+ * to maxDrafts, each its own job. A scheduled run does nothing while the
  * agent is off.
  */
-export async function runAgentScan({ manual }: { manual: boolean }, context: JobContext, now = new Date()): Promise<AgentScanResult> {
-  const settings = await loadSettings();
-  if (!settings.agentEnabled && !manual) return stopped("The job agent is off.");
-  const setup = await agentSetupProblem(settings.agentQuery);
+export async function runAgentScan({ agentId, manual }: { agentId: string; manual: boolean }, context: JobContext, now = new Date()): Promise<AgentScanResult> {
+  const agent = await loadAgent(agentId);
+  if (!agent) return stopped("That job agent was deleted.");
+  if (!agent.enabled && !manual) return stopped("The job agent is off.");
+  const setup = await agentSetupProblem(agent);
   if (setup) return stopped(setup);
-  const limit = runLimitProblem(settings.agentRuns, now, { manual: false });
+  const limit = runLimitProblem(agent.runs, now, { manual: false });
   if (limit) return stopped(limit);
 
-  const run = await recordRunStart(now, manual);
+  const run = await recordRunStart(agent.id, now, manual);
   const finish = async (result: AgentScanResult) => {
-    await recordRunEnd(run, result.message);
+    await recordRunEnd(agent.id, run, result.message);
     return result;
   };
 
-  await context.step("Searching for new postings");
+  const { source } = agent;
+  // An Apify scraper takes a minute or two.
+  await context.step(isApifySource(source) ? `Running the ${SOURCE_INFO[source].name} scraper, which takes a minute or two` : "Searching for new postings");
   const config = await loadJobSearchConfig();
-  const source = config.source!;
   let postings: FoundPosting[];
   try {
     // The first page only: the agent never asks for a second.
-    postings = (await searchPostings(source, credentialsFor(config, source), settings.agentQuery, null, requestContext(source))).postings;
+    postings = (await searchPostings(source, credentialsFor(config, source), agent.query, null, { ...requestContext(source), signal: context.signal })).postings;
   } catch (error) {
     if (error instanceof JobSearchError) return finish(stopped(error.message));
     throw error;
@@ -127,7 +130,7 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
   const counts = { found: postings.length, fresh: fresh.length, skipped: postings.length - fresh.length, drafted: 0 };
   if (fresh.length === 0) return finish({ ...counts, scored: 0, message: postings.length === 0 ? "The search found no postings this time." : "No new postings this time." });
 
-  const toScore = fresh.toSorted(newestFirst).slice(0, settings.agentMaxScores);
+  const toScore = fresh.toSorted(newestFirst).slice(0, agent.maxScores);
   await context.step(`Scoring ${toScore.length} ${toScore.length === 1 ? "posting" : "postings"}`);
   const [provider, options, profile] = await Promise.all([getAiProvider(), loadTaskOptions(), loadProfile()]);
   let scored = 0;
@@ -142,12 +145,12 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
         { posting: postingText(posting), title: posting.title, company: posting.company, place: posting.place, remote: posting.remote, salary: posting.salary, profile },
         { ...options, signal: context.signal },
       );
-      const candidate = await prisma.agentCandidate.create({ data: candidateData(posting, data), select: { id: true } });
+      const candidate = await prisma.agentCandidate.create({ data: { ...candidateData(posting, data), agent: { connect: { id: agent.id } } }, select: { id: true } });
       // Find jobs shows it too (#208).
       await saveScore(posting, data, promptVersion);
       kept.push(candidate.id);
       scored += 1;
-      if (data.score >= settings.agentMinScore) queued += 1;
+      if (data.score >= agent.minScore) queued += 1;
     } catch (error) {
       // Another run kept it first: it's seen either way.
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") continue;
@@ -159,11 +162,11 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
 
   // Auto-draft (#197, off by default): the best of this run's, one job each.
   let drafted = 0;
-  if (settings.agentAutoDraft && settings.agentMaxDrafts > 0 && !context.signal.aborted) {
+  if (agent.autoDraft && agent.maxDrafts > 0 && !context.signal.aborted) {
     const best = await prisma.agentCandidate.findMany({
-      where: { id: { in: kept }, status: AgentCandidateStatus.SCORED, score: { gte: settings.agentMinScore } },
+      where: { id: { in: kept }, status: AgentCandidateStatus.SCORED, score: { gte: agent.minScore } },
       orderBy: { score: "desc" },
-      take: settings.agentMaxDrafts,
+      take: agent.maxDrafts,
       select: { id: true },
     });
     for (const { id } of best) await startJob(agentDraftJob, { candidateId: id }, { key: draftJobKey(id) });
@@ -175,7 +178,7 @@ export async function runAgentScan({ manual }: { manual: boolean }, context: Job
     scored === 0
       ? (problem ?? "No postings could be scored this time.")
       : queued === 0
-        ? `Scored ${scored} new ${scored === 1 ? "posting" : "postings"}; none reached your minimum score of ${settings.agentMinScore}.`
+        ? `Scored ${scored} new ${scored === 1 ? "posting" : "postings"}; none reached your minimum score of ${agent.minScore}.`
         : drafted > 0
           ? `${waiting} Preparing ${drafted === 1 ? "a draft for the best one" : `drafts for the best ${drafted}`}.`
           : waiting;

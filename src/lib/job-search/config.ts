@@ -26,18 +26,32 @@ export type JobSearchConfig = {
    * when its note was accepted. Its searches wait until then.
    */
   arbeitsagentur: { offered: boolean; acceptedAt: string | null };
+  /** Apify (APIFY_LINKEDIN and APIFY_INDEED): one token, and the most results a run asks for. */
+  apify: { key: string | null; keyState: JobKeyState; maxResults: number };
 };
 
-type SavedJobSettings = Pick<SettingsData, "jobSource" | "jsearchKeyEnc" | "jsearchHost" | "adzunaAppId" | "adzunaKeyEnc" | "arbeitsagenturAcceptedAt">;
+type SavedJobSettings = Pick<SettingsData, "jobSource" | "jsearchKeyEnc" | "jsearchHost" | "adzunaAppId" | "adzunaKeyEnc" | "arbeitsagenturAcceptedAt"> &
+  Partial<Pick<SettingsData, "apifyTokenEnc" | "apifyMaxResults">>;
+
+/** The results an Apify run asks for when nothing is saved. */
+const APIFY_DEFAULT_MAX_RESULTS = 25;
 type JobEnv = Pick<
   Env,
-  "DOSSIER_JOBS_SOURCE" | "DOSSIER_JSEARCH_KEY" | "DOSSIER_JSEARCH_HOST" | "DOSSIER_ADZUNA_APP_ID" | "DOSSIER_ADZUNA_KEY" | "DOSSIER_JOBS_ARBEITSAGENTUR"
+  | "DOSSIER_JOBS_SOURCE"
+  | "DOSSIER_JSEARCH_KEY"
+  | "DOSSIER_JSEARCH_HOST"
+  | "DOSSIER_ADZUNA_APP_ID"
+  | "DOSSIER_ADZUNA_KEY"
+  | "DOSSIER_JOBS_ARBEITSAGENTUR"
+  | "DOSSIER_APIFY_TOKEN"
 >;
 
 const FROM_ENV: Record<NonNullable<Env["DOSSIER_JOBS_SOURCE"]>, JobSource | null> = {
   jsearch: "JSEARCH",
   adzuna: "ADZUNA",
   arbeitsagentur: "ARBEITSAGENTUR",
+  "apify-linkedin": "APIFY_LINKEDIN",
+  "apify-indeed": "APIFY_INDEED",
   off: null,
 };
 
@@ -72,6 +86,7 @@ export function resolveJobSearchConfig(saved: SavedJobSettings, source: JobEnv, 
       ...keyOf(saved.adzunaKeyEnc, source.DOSSIER_ADZUNA_KEY, secret),
     },
     arbeitsagentur: { offered, acceptedAt: saved.arbeitsagenturAcceptedAt },
+    apify: { ...keyOf(saved.apifyTokenEnc ?? null, source.DOSSIER_APIFY_TOKEN, secret), maxResults: saved.apifyMaxResults ?? APIFY_DEFAULT_MAX_RESULTS },
   };
 }
 
@@ -97,6 +112,7 @@ export function jobSearchView(config: JobSearchConfig): JobSearchSettingsView {
     jsearch: { host: config.jsearch.host, keyState: config.jsearch.keyState },
     adzuna: { appId: config.adzuna.appId, keyState: config.adzuna.keyState },
     arbeitsagentur: config.arbeitsagentur,
+    apify: { keyState: config.apify.keyState, maxResults: config.apify.maxResults },
   };
 }
 
@@ -116,7 +132,12 @@ export function requestContext(source: JobSource, base = env.DOSSIER_JOBS_TEST_B
 export function credentialsFor<S extends JobSource>(config: JobSearchConfig, source: S): SourceCredentials[S] {
   const missing = (keyState: JobKeyState) =>
     keyState === "unreadable"
-      ? new JobSearchError("no-key", `Your saved ${SOURCE_INFO[source].name} key can't be read. Enter it again in Settings → Job search.`)
+      ? new JobSearchError(
+          "no-key",
+          source === "APIFY_LINKEDIN" || source === "APIFY_INDEED"
+            ? "Your saved Apify token can't be read. Enter it again in Settings → Job agent → Apify."
+            : `Your saved ${SOURCE_INFO[source].name} key can't be read. Enter it again in Settings → Job search.`,
+        )
       : jobSearchError("no-key", source);
   switch (source) {
     case "JSEARCH": {
@@ -134,5 +155,22 @@ export function credentialsFor<S extends JobSource>(config: JobSearchConfig, sou
       if (!config.arbeitsagentur.acceptedAt) throw jobSearchError("not-accepted", source);
       return {} as SourceCredentials[S];
     }
+    case "APIFY_LINKEDIN":
+    case "APIFY_INDEED": {
+      const { key, keyState, maxResults } = config.apify;
+      if (!key) throw missing(keyState);
+      return { token: key, maxResults } as SourceCredentials[S];
+    }
+  }
+}
+
+/** Whether a source has what it needs to be searched: its key, or for the BA its note. */
+export function sourceReady(config: JobSearchConfig, source: JobSource): boolean {
+  try {
+    credentialsFor(config, source);
+    return true;
+  } catch (error) {
+    if (error instanceof JobSearchError) return false;
+    throw error;
   }
 }

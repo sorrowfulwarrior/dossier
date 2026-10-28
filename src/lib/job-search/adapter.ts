@@ -13,7 +13,12 @@ export type SourceCredentials = {
   JSEARCH: { key: string; host: JSearchHost };
   ADZUNA: { appId: string; key: string };
   ARBEITSAGENTUR: Record<string, never>;
+  /** One Apify token for both actors, and the most results a run may ask for. */
+  APIFY_LINKEDIN: ApifyCredentials;
+  APIFY_INDEED: ApifyCredentials;
 };
+
+export type ApifyCredentials = { token: string; maxResults: number };
 
 export type RequestContext = {
   /** Replaces the source's own address; for the end-to-end tests' fake source. */

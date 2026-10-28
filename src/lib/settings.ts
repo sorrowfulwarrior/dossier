@@ -155,22 +155,11 @@ export const settingsSchema = z.object({
   adzunaKeyEnc: z.string().nullable().catch(null),
   /** When "I understand" was ticked under the Bundesagentur für Arbeit's note (#223); its searches wait for it. */
   arbeitsagenturAcceptedAt: z.iso.datetime().nullable().catch(null),
-  // Job agent (E16): one search, run once a day. Off until it's turned on.
-  // It asks the source in Settings → Job search, with its key.
-  agentEnabled: flag(false),
-  /** The search it runs, as Find jobs asks it; it needs keywords and a country to run. */
-  agentQuery: json(searchQuerySchema).catch(EMPTY_QUERY),
-  /** The hour of the day it runs, in the user's time zone. */
-  agentHour: z.coerce.number().int().min(0).max(23).catch(7),
-  /** Postings scored below this stay out of the queue. */
-  agentMinScore: z.coerce.number().int().min(0).max(100).catch(70),
-  /** The most postings a run scores, and the most drafts it prepares on its own. */
-  agentMaxScores: z.coerce.number().int().min(1).max(30).catch(15),
-  agentMaxDrafts: z.coerce.number().int().min(0).max(10).catch(3),
-  /** Whether a run prepares drafts for its best postings, or only scores them (off by default, #197). */
-  agentAutoDraft: flag(false),
-  /** The latest runs, newest first. They belong to the install: exports leave them out (INSTALL_SETTINGS). */
-  agentRuns: json(z.array(agentRunSchema)).catch([]),
+  // Apify (job sources APIFY_LINKEDIN and APIFY_INDEED), reached through
+  // its MCP server. The token is encrypted like the other keys; each run
+  // costs on the user's Apify account, so it's capped at this many results.
+  apifyTokenEnc: z.string().nullable().catch(null),
+  apifyMaxResults: z.coerce.number().int().min(5).max(100).catch(25),
   // Startups (#222): when the screen was last opened, since the daily refresh
   // only runs while it's in use, and what the last refresh found. They belong
   // to the install, not its data, so exports leave them out (INSTALL_SETTINGS).
@@ -235,6 +224,30 @@ export const settingsSchema = z.object({
   browserTimeZone: z.string().nullable().catch(null),
 });
 export type SettingsData = z.output<typeof settingsSchema>;
+
+/**
+ * The single job agent's settings, as Dossier kept them up to 1.9 (E16).
+ * They're read once, to become the first JobAgent (src/lib/agent/agents.ts),
+ * and from export files made before there could be several agents.
+ */
+export const legacyAgentSettingsSchema = z.object({
+  agentEnabled: flag(false),
+  /** The search it runs, as Find jobs asks it; it needs keywords and a country to run. */
+  agentQuery: json(searchQuerySchema).catch(EMPTY_QUERY),
+  /** The hour of the day it runs, in the user's time zone. */
+  agentHour: z.coerce.number().int().min(0).max(23).catch(7),
+  /** Postings scored below this stay out of the queue. */
+  agentMinScore: z.coerce.number().int().min(0).max(100).catch(70),
+  /** The most postings a run scores, and the most drafts it prepares on its own. */
+  agentMaxScores: z.coerce.number().int().min(1).max(30).catch(15),
+  agentMaxDrafts: z.coerce.number().int().min(0).max(10).catch(3),
+  /** Whether a run prepares drafts for its best postings, or only scores them (off by default, #197). */
+  agentAutoDraft: flag(false),
+  /** The latest runs, newest first. They belong to the install: exports leave them out (INSTALL_SETTINGS). */
+  agentRuns: json(z.array(agentRunSchema)).catch([]),
+});
+export type LegacyAgentSettings = z.output<typeof legacyAgentSettingsSchema>;
+export const LEGACY_AGENT_KEYS = Object.keys(legacyAgentSettingsSchema.shape) as (keyof LegacyAgentSettings)[];
 
 /** The settings from Setting rows; keys it doesn't know are ignored. */
 export function settingsFromRows(rows: readonly { key: string; value: string }[]): SettingsData {

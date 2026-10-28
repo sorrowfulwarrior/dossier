@@ -1,6 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { saveSettings } from "@/lib/settings-data";
 import { createTestClient, resetDatabase } from "@/test/db";
 
 import { countAgentQueue, loadAgentView } from "./view";
@@ -20,16 +19,17 @@ vi.mock("@/lib/job-search/config", () => ({
 
 const prisma = () => db.client!;
 const now = new Date("2026-10-20T10:00:00Z");
+const query = { keywords: "Data scientist", place: "Berlin", country: "de", radiusKm: 25, remoteOnly: false, postedWithin: "any" };
+let agentId = "";
 const candidate = (externalId: string, score: number, data: Record<string, unknown> = {}) =>
-  prisma().agentCandidate.create({ data: { source: "JSEARCH", externalId, dedupeKey: externalId, title: `Posting ${externalId}`, company: "Ledgerly", place: "Berlin", remote: true, score, via: "LinkedIn", postedAt: new Date("2026-10-18T00:00:00Z"), ...data } });
+  prisma().agentCandidate.create({ data: { agentId, source: "JSEARCH", externalId, dedupeKey: externalId, title: `Posting ${externalId}`, company: "Ledgerly", place: "Berlin", remote: true, score, via: "LinkedIn", postedAt: new Date("2026-10-18T00:00:00Z"), ...data } });
 
 beforeEach(async () => {
   await resetDatabase(prisma());
-  await saveSettings({
-    agentEnabled: true,
-    agentQuery: { keywords: "Data scientist", place: "Berlin", country: "de", radiusKm: 25, remoteOnly: false, postedWithin: "any" },
-    agentRuns: [{ at: "2026-10-20T05:00:00Z", manual: false, message: "2 new postings are waiting for a look." }],
+  const agent = await prisma().jobAgent.create({
+    data: { source: "JSEARCH", enabled: true, query, runs: [{ at: "2026-10-20T05:00:00Z", manual: false, message: "2 new postings are waiting for a look." }] },
   });
+  agentId = agent.id;
 });
 afterAll(() => prisma().$disconnect());
 
@@ -48,8 +48,11 @@ describe("the Agent screen's data (E16-6)", () => {
     expect(view.drafts.map((entry) => entry.title)).toEqual(["Posting draft"]);
     expect(view.scored.map((entry) => entry.title)).toEqual(["Posting better", "Posting good"]);
     expect(view.belowMinimum.map((entry) => entry.title)).toEqual(["Posting low"]);
-    expect(view.scored[1]).toMatchObject({ facts: "Berlin · Remote", origin: "Posted 2 days ago · via LinkedIn on JSearch", draftJobId: job.id });
-    expect(view).toMatchObject({
+    expect(view.scored[1]).toMatchObject({ facts: "Berlin · Remote", origin: "Posted 2 days ago · via LinkedIn on JSearch", draftJobId: job.id, agentId, agentName: "Data scientist" });
+    expect(view.agents).toHaveLength(1);
+    expect(view.agents[0]).toMatchObject({
+      id: agentId,
+      name: "Data scientist",
       search: "Data scientist · Berlin, 25 km · via JSearch",
       setupProblem: null,
       limitReached: false,
@@ -60,13 +63,29 @@ describe("the Agent screen's data (E16-6)", () => {
     expect(await countAgentQueue()).toBe(3);
   });
 
+  it("holds each candidate to its own agent's minimum score", async () => {
+    const strict = await prisma().jobAgent.create({ data: { name: "Strict", source: "APIFY_LINKEDIN", enabled: true, query, minScore: 85 } });
+    await candidate("mine", 75);
+    await candidate("theirs", 80, { agentId: strict.id });
+    // An agent that was deleted leaves its candidates at the default of 70.
+    await candidate("orphan", 72, { agentId: null });
+    const view = await loadAgentView(now);
+    expect(view.scored.map((entry) => entry.title)).toEqual(["Posting mine", "Posting orphan"]);
+    expect(view.belowMinimum.map((entry) => [entry.title, entry.agentName])).toEqual([["Posting theirs", "Strict"]]);
+    expect(view.agents.map((agent) => agent.search)).toEqual(["Data scientist · Berlin, 25 km · via JSearch", "Data scientist · Berlin, 25 km · via LinkedIn (Apify)"]);
+    expect(await countAgentQueue()).toBe(2);
+  });
+
   it("says what's missing, and when the day's runs are used up", async () => {
-    await saveSettings({
-      agentEnabled: false,
-      agentQuery: { keywords: "", place: "", country: "", radiusKm: 25, remoteOnly: false, postedWithin: "any" },
-      agentRuns: ["09:30", "08:00", "06:00"].map((time) => ({ at: `2026-10-20T${time}:00Z`, manual: true, message: null })),
+    await prisma().jobAgent.update({
+      where: { id: agentId },
+      data: {
+        enabled: false,
+        query: { keywords: "", place: "", country: "", radiusKm: 25, remoteOnly: false, postedWithin: "any" },
+        runs: ["09:30", "08:00", "06:00"].map((time) => ({ at: `2026-10-20T${time}:00Z`, manual: true, message: null })),
+      },
     });
-    expect(await loadAgentView(now)).toMatchObject({
+    expect((await loadAgentView(now)).agents[0]).toMatchObject({
       enabled: false,
       search: null,
       setupProblem: "Add what to look for in Settings → Job agent first.",

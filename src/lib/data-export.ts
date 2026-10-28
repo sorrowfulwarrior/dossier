@@ -33,22 +33,22 @@ import { appVersion } from "@/lib/version";
 // Everything a user keeps in Dossier as one JSON file (E10-4, SET-10): the
 // profile, custom themes, settings and applications with their history,
 // documents, chat and notes, the postings kept from Find jobs (E14-9) and
-// the job agent's candidates (E16), so its dedupe survives a restore, and
+// the job agents and their candidates (E16), so dedupe survives a restore, and
 // Startups with what the user did with them (#222).
 // IDs are kept, so an import restores every link. Jobs, sign-in throttling,
 // built-in themes, the Google account and the mail fetched from Gmail stay
 // behind: they belong to the server or the mailbox, not the user's data.
 
 export const EXPORT_FORMAT = "dossier-export";
-/** Bump when the file's shape changes; imports refuse versions they don't know. 2 added Find jobs' postings and keys (E14-9), 3 projects (PRO-13) and the job agent (E16), 4 facts (PRO-14, APP-15), 5 publications (#218), the profile photo's theme and application options (#224) and Startups (#222). */
-export const EXPORT_SCHEMA_VERSION = 5;
+/** Bump when the file's shape changes; imports refuse versions they don't know. 2 added Find jobs' postings and keys (E14-9), 3 projects (PRO-13) and the job agent (E16), 4 facts (PRO-14, APP-15), 5 publications (#218), the profile photo's theme and application options (#224) and Startups (#222), 6 several job agents and the Apify token. */
+export const EXPORT_SCHEMA_VERSION = 6;
 /** The versions imports can read. */
-export const EXPORT_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3, 4, 5];
+export const EXPORT_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6];
 
 /** The setting that holds the encrypted API key, which only this server can read. */
 const API_KEY_SETTING = "apiKeyEnc";
 /** The settings that hold encrypted keys, which only this server can read: never exported as they are. */
-export const SECRET_SETTINGS: readonly string[] = [API_KEY_SETTING, "jsearchKeyEnc", "adzunaKeyEnc"];
+export const SECRET_SETTINGS: readonly string[] = [API_KEY_SETTING, "jsearchKeyEnc", "adzunaKeyEnc", "apifyTokenEnc"];
 /** The settings that belong to this install rather than its data (the usage ping's and its consent, the update check's, the Google client and the browser's time zone): never exported, and kept by an import. */
 export const INSTALL_SETTINGS: readonly string[] = [
   "usagePingId",
@@ -56,7 +56,7 @@ export const INSTALL_SETTINGS: readonly string[] = [
   "usagePingChoice",
   "usagePingChoiceAt",
   "usagePingChoiceText",
-  // The job agent's runs count against this server's job source key (E16).
+  // The single job agent's runs, in files before version 6: they count against this server's job source key (E16).
   "agentRuns",
   // When Startups was last opened and what its last refresh found (#222).
   "startupsViewedAt",
@@ -246,7 +246,26 @@ const agentCandidate = z.object({
   status: z.enum(AgentCandidateStatus),
   error: text.nullable(),
   applicationId: text.nullable(),
+  /** The agent that found it; absent in files before version 6. */
+  agentId: text.nullable().default(null),
   dedupeKey: text,
+  createdAt: date,
+  updatedAt: date,
+});
+
+/** A job agent (E16), without its runs, which count against this server's keys. Absent in files before version 6, whose one agent is in the settings. */
+const jobAgent = z.object({
+  id: text,
+  name: text,
+  source: z.enum(PostingSource),
+  query: z.unknown(),
+  enabled: z.boolean(),
+  hour: int,
+  minScore: int,
+  maxScores: int,
+  maxDrafts: int,
+  autoDraft: z.boolean(),
+  position: int,
   createdAt: date,
   updatedAt: date,
 });
@@ -318,7 +337,7 @@ const postingSearch = z.object({
 /** An export file as read back (E10-6). */
 export const exportSchema = z.object({
   format: z.literal(EXPORT_FORMAT),
-  schemaVersion: z.literal([1, 2, 3, 4, 5]),
+  schemaVersion: z.literal([1, 2, 3, 4, 5, 6]),
   appVersion: text,
   exportedAt: date,
   profile: z.object({
@@ -340,13 +359,15 @@ export const exportSchema = z.object({
   /** The AI provider's key in plain text, only when the user asked for it. */
   apiKey: text.optional(),
   /** The job sources' keys in plain text, likewise (E14-9). */
-  jobSourceKeys: z.object({ jsearch: text.optional(), adzuna: text.optional() }).optional(),
+  jobSourceKeys: z.object({ jsearch: text.optional(), adzuna: text.optional(), apify: text.optional() }).optional(),
   applications: z.array(application),
   /** Saved and dismissed postings (E14-9); absent in version 1 files. */
   postings: z.array(posting).default([]),
   /** Past searches with what they found (E14-10); absent in version 1 files. */
   searches: z.array(postingSearch).default([]),
-  /** The job agent's candidates (E16); absent in older files. */
+  /** The job agents (E16); absent in files before version 6. */
+  jobAgents: z.array(jobAgent).default([]),
+  /** The job agents' candidates (E16); absent in older files. */
   agentCandidates: z.array(agentCandidate).default([]),
   /** Startups (#222), and hashes of the ones removed for good; absent in older files. */
   startups: z.array(startup).default([]),
@@ -372,7 +393,7 @@ export async function buildExport(
   { includeApiKey = false, now = new Date() }: { includeApiKey?: boolean; now?: Date } = {},
 ): Promise<DossierExport> {
   return db.$transaction(async (tx) => {
-    const [fields, skills, languages, experience, projects, education, publications, references, facts, themes, settings, applications, postings, searches, agentCandidates, startups, startupBlocks] = await Promise.all([
+    const [fields, skills, languages, experience, projects, education, publications, references, facts, themes, settings, applications, postings, searches, jobAgents, agentCandidates, startups, startupBlocks] = await Promise.all([
       tx.profileField.findMany({ select: { key: true, value: true }, orderBy: { key: "asc" } }),
       tx.skill.findMany({ select: { id: true, name: true, sort: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
       tx.language.findMany({ select: { id: true, name: true, level: true, sort: true, createdAt: true }, orderBy: { createdAt: "asc" } }),
@@ -402,6 +423,7 @@ export async function buildExport(
       }),
       tx.posting.findMany({ orderBy: { createdAt: "asc" } }),
       tx.postingSearch.findMany({ orderBy: { createdAt: "asc" } }),
+      tx.jobAgent.findMany({ omit: { runs: true }, orderBy: { createdAt: "asc" } }),
       tx.agentCandidate.findMany({ orderBy: { createdAt: "asc" } }),
       tx.startup.findMany({ orderBy: { createdAt: "asc" } }),
       tx.startupBlock.findMany({ orderBy: { createdAt: "asc" } }),
@@ -421,6 +443,7 @@ export async function buildExport(
       Object.entries({
         jsearch: readable(stored("jsearchKeyEnc"), (value) => decryptSecret(JOB_SOURCE_KEY, value)),
         adzuna: readable(stored("adzunaKeyEnc"), (value) => decryptSecret(JOB_SOURCE_KEY, value)),
+        apify: readable(stored("apifyTokenEnc"), (value) => decryptSecret(JOB_SOURCE_KEY, value)),
       }).filter(([, value]) => value),
     );
 
@@ -447,6 +470,7 @@ export async function buildExport(
       applications,
       postings,
       searches,
+      jobAgents,
       agentCandidates,
       startups,
       startupBlocks,

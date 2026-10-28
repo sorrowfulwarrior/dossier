@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ComponentProps } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -24,6 +24,14 @@ const router = vi.hoisted(() => ({ push: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router, usePathname: () => null }));
 vi.mock("next/link", () => ({ default: ({ href, ...props }: ComponentProps<"a">) => <a href={href} {...props} /> }));
 vi.mock("@/components/toast", () => ({ toast: vi.fn(), toastResult: (result: unknown) => result }));
+// An Apify search's job, as the screen follows it.
+const searchJob = vi.hoisted(() => ({ update: null as null | ((job: unknown) => void), step: null as string | null }));
+vi.mock("@/hooks/use-job", () => ({
+  useJob: (id: string | null, _revision: number, onChange: (job: unknown) => void) => {
+    searchJob.update = id ? onChange : null;
+    return id ? { id, type: "apify-search", status: "RUNNING", step: searchJob.step, error: null, result: null } : null;
+  },
+}));
 vi.mock("./actions", () => ({
   acceptArbeitsagenturNote: vi.fn(),
   startApplicationFrom: vi.fn(),
@@ -111,8 +119,23 @@ describe("the search form", () => {
     await userEvent.selectOptions(screen.getByLabelText("Within"), "50");
     await userEvent.click(screen.getByLabelText("Remote only"));
     await userEvent.click(screen.getByRole("button", { name: "Search" }));
-    expect(runJobSearch).toHaveBeenCalledWith({ query: { ...query, radiusKm: 50, remoteOnly: true } });
+    expect(runJobSearch).toHaveBeenCalledWith({ query: { ...query, radiusKm: 50, remoteOnly: true }, source: "JSEARCH" });
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/jobs?search=run-2", { scroll: false }));
+  });
+
+  it("searches LinkedIn on Apify when chosen, following the run until it's kept", async () => {
+    vi.mocked(runJobSearch).mockResolvedValue({ ok: true, data: { ok: true, jobId: "job-9" } });
+    searchJob.step = "Running the LinkedIn (Apify) scraper, which takes a minute or two";
+    renderScreen({ sources: [{ source: "JSEARCH", name: "JSearch" }, { source: "APIFY_LINKEDIN", name: "LinkedIn (Apify)" }] });
+    await userEvent.selectOptions(screen.getByLabelText("Search on"), "LinkedIn (Apify)");
+    expect(screen.getByLabelText("Search on")).toHaveAccessibleDescription("Runs on Apify, paid per result; takes a minute or two.");
+    await userEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(runJobSearch).toHaveBeenCalledWith({ query, source: "APIFY_LINKEDIN" });
+    // Shown, and announced.
+    expect(await screen.findAllByText(/^Running the LinkedIn \(Apify\) scraper, which takes a minute or two/)).toHaveLength(2);
+    expect(screen.getByRole("button", { name: "Searching…" })).toBeInTheDocument();
+    act(() => searchJob.update!({ id: "job-9", status: "DONE", step: null, error: null, result: { ok: true, id: "run-9" } }));
+    expect(router.push).toHaveBeenCalledWith("/jobs?search=run-9", { scroll: false });
   });
 
   it("shows what went wrong, with Try again when the source isn't answering", async () => {
@@ -255,7 +278,7 @@ describe("the results", () => {
   it("runs the same search again, as a new one", async () => {
     renderScreen({ search: stored([posting("a")]) });
     await userEvent.click(screen.getByRole("button", { name: "Search again" }));
-    expect(runJobSearch).toHaveBeenCalledWith({ query });
+    expect(runJobSearch).toHaveBeenCalledWith({ query, source: "JSEARCH" });
     await waitFor(() => expect(router.push).toHaveBeenCalledWith("/jobs?search=run-2", { scroll: false }));
   });
 

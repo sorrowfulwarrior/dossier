@@ -20,6 +20,7 @@ const off: JobSearchSettingsView = {
   jsearch: { host: "openwebninja", keyState: "none" },
   adzuna: { appId: "", keyState: "none" },
   arbeitsagentur: { offered: true, acceptedAt: null },
+  apify: { keyState: "none", maxResults: 25 },
 };
 const ACCEPTED = "2026-10-23T09:00:00.000Z";
 const withSource = (view: Partial<JobSearchSettingsView>): JobSearchSettingsView => ({ ...off, ...view });
@@ -35,13 +36,15 @@ beforeEach(() => {
 });
 
 describe("JobSearchSection", () => {
-  it("offers the three sources and Off, as a radio group, Off by default", () => {
+  it("offers the sources and Off, as a radio group, Off by default", () => {
     render(<JobSearchSection initial={off} />);
     expect(screen.getByRole("heading", { name: "Job search" })).toBeInTheDocument();
     expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual([
       "JSearch",
       "Adzuna",
       "Bundesagentur für Arbeit",
+      "LinkedIn (Apify)",
+      "Indeed (Apify)",
       "Off",
     ]);
     expect(screen.getByRole("radio", { name: "Off" })).toBeChecked();
@@ -126,7 +129,7 @@ describe("JobSearchSection", () => {
 
   it("leaves the Arbeitsagentur out when the server doesn't offer it", () => {
     render(<JobSearchSection initial={withSource({ arbeitsagentur: { offered: false, acceptedAt: null } })} />);
-    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["JSearch", "Adzuna", "Off"]);
+    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["JSearch", "Adzuna", "LinkedIn (Apify)", "Indeed (Apify)", "Off"]);
   });
 
   it("shows keys from the environment and keys that can't be read", () => {
@@ -150,5 +153,11 @@ describe("JobSearchSection", () => {
     vi.mocked(testJobSource).mockResolvedValue({ ok: false, error: "Something went wrong on the server. Please try again." });
     await userEvent.click(screen.getByRole("button", { name: "Test connection" }));
     expect(await screen.findByText("Something went wrong on the server. Please try again.")).toBeInTheDocument();
+  });
+
+  it("sends LinkedIn and Indeed on Apify to Settings → Job agent for their token", () => {
+    render(<JobSearchSection initial={withSource({ source: "APIFY_INDEED" })} />);
+    expect(screen.getByText(/Add your Apify token in/)).toHaveTextContent("Each search runs the scraper once, at most 25 results, paid on your Apify account.");
+    expect(screen.getByRole("link", { name: "Settings → Job agent → Apify" })).toHaveAttribute("href", "/settings?section=agent");
   });
 });

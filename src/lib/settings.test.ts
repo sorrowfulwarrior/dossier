@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { DateFormat } from "@/generated/prisma/enums";
 
-import { DATE_FORMATS, formatDocumentDate, maxPages, pagesInWords, settingsFromRows, settingValue, type SettingsData } from "./settings";
+import { DATE_FORMATS, formatDocumentDate, legacyAgentSettingsSchema, maxPages, pagesInWords, settingsFromRows, settingsSchema, settingValue, type SettingsData } from "./settings";
 
 const date = new Date(Date.UTC(2026, 8, 7));
 
@@ -62,14 +62,8 @@ describe("stored settings", () => {
       adzunaAppId: null,
       adzunaKeyEnc: null,
       arbeitsagenturAcceptedAt: null,
-      agentEnabled: false,
-      agentQuery: { keywords: "", place: "", country: "", radiusKm: 25, remoteOnly: false, postedWithin: "any" },
-      agentHour: 7,
-      agentMinScore: 70,
-      agentMaxScores: 15,
-      agentMaxDrafts: 3,
-      agentAutoDraft: false,
-      agentRuns: [],
+      apifyTokenEnc: null,
+      apifyMaxResults: 25,
       startupsViewedAt: null,
       startupsLastRefresh: null,
       updateCheck: true,
@@ -111,7 +105,7 @@ describe("stored settings", () => {
       quietDays: 14,
       jobRetentionHours: 168,
     } satisfies Partial<SettingsData>;
-    const rows = Object.entries(saved).map(([key, value]) => ({ key, value: settingValue(value)! }));
+    const rows = Object.entries(saved).map(([key, value]) => ({ key, value: typeof value === "object" ? JSON.stringify(value) : String(value) }));
     expect(rows).toContainEqual({ key: "strict", value: "false" });
     expect(rows).toContainEqual({ key: "customLanguages", value: '["Farsi","Hebrew"]' });
     expect(rows).toContainEqual({ key: "quietDays", value: "14" });
@@ -144,11 +138,12 @@ describe("stored settings", () => {
   });
 });
 
-describe("the job agent's settings (E16)", () => {
+describe("the single job agent's settings, as 1.9 kept them (E16)", () => {
   it("reads its search and runs as JSON, and values out of range as the defaults", () => {
+    const settingsFromRows = (rows: { key: string; value: string }[]) => legacyAgentSettingsSchema.parse(Object.fromEntries(rows.map((row) => [row.key, row.value])));
     const query = { keywords: "Data scientist", place: "Berlin", country: "de", radiusKm: 50, remoteOnly: true, postedWithin: "week" } as const;
     const runs = [{ at: "2026-10-20T07:00:00.000Z", manual: false, message: "2 new postings scored." }];
-    const rows = Object.entries({ agentQuery: query, agentRuns: runs, agentEnabled: true, agentHour: 9 }).map(([key, value]) => ({ key, value: settingValue(value)! }));
+    const rows = Object.entries({ agentQuery: query, agentRuns: runs, agentEnabled: true, agentHour: 9 }).map(([key, value]) => ({ key, value: typeof value === "object" ? JSON.stringify(value) : String(value) }));
     expect(rows).toContainEqual({ key: "agentQuery", value: JSON.stringify(query) });
     expect(settingsFromRows(rows)).toMatchObject({ agentQuery: query, agentRuns: runs, agentEnabled: true, agentHour: 9 });
 
@@ -161,6 +156,8 @@ describe("the job agent's settings (E16)", () => {
       { key: "agentMaxDrafts", value: "11" },
     ]);
     expect(odd).toMatchObject({ agentQuery: { keywords: "", country: "" }, agentRuns: [], agentHour: 7, agentMinScore: 70, agentMaxScores: 15, agentMaxDrafts: 3 });
+    // They're no longer settings of their own.
+    expect(Object.keys(settingsSchema.shape).filter((key) => key.startsWith("agent"))).toEqual([]);
   });
 });
 

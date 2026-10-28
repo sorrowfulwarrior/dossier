@@ -39,14 +39,19 @@ export class JobSearchError extends Error {
 /** The error for `problem` with `source`, worded for the screen. */
 export function jobSearchError(problem: JobSearchProblem, source: JobSource, { country = "", detail }: { country?: string; detail?: string } = {}) {
   const { name, quotaPeriod } = SOURCE_INFO[source];
+  const apify = source === "APIFY_LINKEDIN" || source === "APIFY_INDEED";
   const message = {
     off: `${name} isn't offered on this server. Choose another source in Settings → Job search.`,
     "not-accepted": `Read the note about ${name} and tick “I understand” before Dossier searches it.`,
-    "no-key": `Add your ${name} ${source === "ADZUNA" ? "app ID and key" : "key"} in Settings → Job search first.`,
-    key: `${name} didn't accept your key. Check it in Settings → Job search.`,
-    quota: quotaPeriod
-      ? `You've used up your ${name} searches for ${quotaPeriod}. Try again then, or move to a bigger plan.`
-      : `${name} is limiting searches right now. Wait a minute and try again.`,
+    "no-key": apify
+      ? "Add your Apify token in Settings → Job agent → Apify first."
+      : `Add your ${name} ${source === "ADZUNA" ? "app ID and key" : "key"} in Settings → Job search first.`,
+    key: apify ? "Apify didn't accept your token. Check it in Settings → Job agent → Apify." : `${name} didn't accept your key. Check it in Settings → Job search.`,
+    quota: apify
+      ? "Apify refused the run: your account's credit or limits may be used up. Check your Apify console."
+      : quotaPeriod
+        ? `You've used up your ${name} searches for ${quotaPeriod}. Try again then, or move to a bigger plan.`
+        : `${name} is limiting searches right now. Wait a minute and try again.`,
     country: `${name} doesn't list jobs in ${countryName(country)}. Choose another country, or another source in Settings → Job search.`,
     unavailable: `${name} isn't answering right now. Try again in a minute.`,
     changed:

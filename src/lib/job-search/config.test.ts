@@ -26,7 +26,17 @@ describe("resolveJobSearchConfig", () => {
       jsearch: { host: "openwebninja", keyState: "none" },
       adzuna: { appId: "", keyState: "none" },
       arbeitsagentur: { offered: true, acceptedAt: null },
+      apify: { keyState: "none", maxResults: 25 },
     });
+  });
+
+  it("keeps one Apify token for LinkedIn and Indeed, saved or from the environment", () => {
+    const fromEnv = resolveJobSearchConfig(nothingSaved, { DOSSIER_APIFY_TOKEN: "apify_env" });
+    expect(fromEnv.apify).toEqual({ key: "apify_env", keyState: "env", maxResults: 25 });
+    const saved = resolveJobSearchConfig({ ...nothingSaved, apifyTokenEnc: encryptSecret(JOB_SOURCE_KEY, "apify_saved"), apifyMaxResults: 50 }, { DOSSIER_APIFY_TOKEN: "apify_env" });
+    expect(credentialsFor(saved, "APIFY_LINKEDIN")).toEqual({ token: "apify_saved", maxResults: 50 });
+    expect(credentialsFor(saved, "APIFY_INDEED")).toEqual({ token: "apify_saved", maxResults: 50 });
+    expect(() => credentialsFor(resolveJobSearchConfig(nothingSaved, noEnv), "APIFY_INDEED")).toThrow("Add your Apify token in Settings → Job agent → Apify first.");
   });
 
   it("uses the environment until something is saved", () => {

@@ -7,7 +7,8 @@ import { isAiConfigured, isAiUsable } from "@/lib/ai/config";
 import { handOffFoundPosting, handsOffToClaude } from "@/lib/connector/handoff";
 import { loadJobSearchConfig } from "@/lib/job-search/config";
 import { fullText } from "@/lib/job-search/find";
-import { foundPostingSchema, JOB_SOURCES, searchQuerySchema } from "@/lib/job-search/search";
+import { foundPostingSchema, isApifySource, JOB_SOURCES, searchQuerySchema } from "@/lib/job-search/search";
+import { apifySearchJob, apifySearchJobKey } from "@/lib/jobs/apify-search";
 import { findUnfinishedJobs, startJob } from "@/lib/jobs/runner";
 import { scoreJobKey, scorePostingJob } from "@/lib/jobs/score-posting";
 import { removeSearch, runSearch, showMoreFor } from "@/lib/posting-searches";
@@ -29,8 +30,22 @@ export const acceptArbeitsagenturNote = action(z.object({}), async () => {
   return null;
 });
 
-/** "Search": asks the chosen source and keeps the search with what it found; gives its id, or what went wrong. */
-export const runJobSearch = action(z.object({ query: searchQuerySchema }), ({ query }) => runSearch(query));
+/**
+ * "Search": asks the source chosen here, else the one in Settings, and keeps
+ * the search with what it found; gives its id, or what went wrong. LinkedIn
+ * and Indeed on Apify take a minute or two, so they run as a job instead,
+ * whose result is the same.
+ */
+export const runJobSearch = action(
+  z.object({ query: searchQuerySchema, source: z.enum(JOB_SOURCES).optional() }),
+  async ({ query, source }): Promise<Awaited<ReturnType<typeof runSearch>> | { ok: true; jobId: string }> => {
+    if (!source || !isApifySource(source)) return runSearch(query, { source });
+    if (!query.country) return { ok: false, problem: "no-country", message: "Choose a country to search in." };
+    const key = apifySearchJobKey(source, query);
+    const [unfinished] = await findUnfinishedJobs(key);
+    return { ok: true, jobId: unfinished?.id ?? (await startJob(apifySearchJob, { source, query }, { key })) };
+  },
+);
 
 /** "Show more": the next page, added to the kept search. */
 export const showMorePostings = action(z.object({ searchId }), ({ searchId }) => showMoreFor(searchId));
