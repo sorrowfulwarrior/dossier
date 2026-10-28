@@ -17,6 +17,7 @@ import {
   CREATIVITY,
   jobForPrompt,
   languageRule,
+  NATURAL_VOICE,
   NO_EM_DASHES,
   profileForPrompt,
   system,
@@ -25,7 +26,7 @@ import {
   type Task,
 } from "./prompt-parts";
 
-export const REGENERATE_UNIT_VERSION = "regenerate-unit@6";
+export const REGENERATE_UNIT_VERSION = "regenerate-unit@7";
 
 /** What the letter's frame parts are, for the model (E8-11). */
 const FRAME_PARTS: Record<string, string> = {
@@ -78,11 +79,12 @@ export const regenerateUnit: Task<RegenerateInput, Unit> = async (provider, inpu
         bullets
           ? isProject
             ? " It's a project: answer 1–3 bullets, one per line, each starting with a verb, without bullet characters."
-            : " It's a role: answer 2–5 bullets, one per line, each starting with a verb, without bullet characters."
+            : " It's a role: answer 2–5 bullets, one per line, the one this job cares most about first, each starting with a strong verb, without bullet characters."
           : ""
       }`,
       // The letter's greeting and address block aren't where its argument goes.
       kind === DocumentKind.COVER_LETTER && !isFrameUnit(unit.id) && COVER_LETTER_APPROACH,
+      ((kind === DocumentKind.COVER_LETTER && !isFrameUnit(unit.id)) || (kind === DocumentKind.EMAIL && unit.id === "body")) && NATURAL_VOICE,
       kind !== DocumentKind.RESUME && `Tone: ${TONES[tone].label}. ${TONES[tone].description}`,
       kind === DocumentKind.COVER_LETTER && FRAME_PARTS[unit.id],
       kind === DocumentKind.EMAIL && EMAIL_PARTS[unit.id],

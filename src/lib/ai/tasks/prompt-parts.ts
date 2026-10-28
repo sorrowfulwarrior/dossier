@@ -155,7 +155,21 @@ export const COVER_LETTER_APPROACH = `The reader has the resume already, so the 
 - Why this role, why this company and why now. Take the reasons from the posting, the profile and the candidate's facts; leave out a reason they don't back up rather than invent motives or facts about the company.
 - The problem the candidate would be hired to solve, as the posting shows it.
 - Above all, where the candidate has already solved that problem, or the closest one their profile shows: one or two specific stories (the challenge, the decisions made, the result, as far as the profile tells them) rather than a walk through their roles or a list of skills. What counts is having faced a similar challenge, not having held the right title.
-- Keep it short and specific. The aim isn't a letter that reads as well written but one that makes the reader want to talk to the candidate, so skip stock phrases such as "I am writing to apply" or "I am passionate about".`;
+- Keep it short and specific. The aim isn't a letter that reads as well written but one that makes the reader want to talk to the candidate, so skip stock phrases such as "I am writing to apply" or "I am passionate about".
+- Where the job asks for something the profile doesn't have and it matters, say so plainly once, in a sentence or two, and say what the candidate brings instead. Where the posting says it can be learned, say what they'd build on rather than apologise.`;
+
+/**
+ * What makes a letter or email read as generated, for the tasks that write
+ * them. A reader who suspects that discounts everything in it, the true parts too.
+ */
+export const NATURAL_VOICE = `Write like a person, not a generator. The fix is rarely to write worse: drop the machinery of persuasion and let the concrete facts stand.
+- At most one "X, not Y" or "rather than" construction in the whole text; stacked antitheses are the strongest single tell.
+- Vary paragraph length the way people do: a short one- or two-sentence paragraph beside longer ones, never evenly weighted blocks.
+- Don't echo the posting's lists or cadence back at it, and never quote it word for word. React to one specific thing it says instead, in your own words.
+- Don't announce the structure ("three things", "two honest gaps", "firstly"): make the points without counting them first.
+- Use an intensifier such as "exactly", "truly", "deeply" or "precisely" once at most, and skip filler enthusiasm. One concrete detail that only experience could give, or a small, real opinion, reads as human; both must come from the profile or the candidate's facts.
+- When the profile says the candidate's level in the language it's written in is below fluent, write at that level: short sentences and plain constructions, so the text doesn't contradict it.
+- Never invent intentions or motives: no certification they plan to take, technology they are "currently learning" or reason for leaving a job unless the profile or their facts say so.`;
 
 /** Joins the parts of a system prompt. */
 export function system(...parts: (string | false | null | undefined)[]): string {

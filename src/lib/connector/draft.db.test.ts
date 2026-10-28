@@ -39,9 +39,9 @@ vi.mock("@/lib/jobs/write-documents", async () => {
     writeDocumentsJob: {
       run: vi.fn(async () => ({
         resume: demoResumeUnits(),
-        resumeWith: "tailor-resume@6",
+        resumeWith: "tailor-resume@7",
         letter: [...demoLetterUnits(), { id: "sign-off", label: "Sign-off", text: "Warm regards," }],
-        letterWith: "write-cover-letter@5",
+        letterWith: "write-cover-letter@6",
       })),
     },
   };

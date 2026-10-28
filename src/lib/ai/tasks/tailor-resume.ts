@@ -22,7 +22,7 @@ import {
   type Task,
 } from "./prompt-parts";
 
-export const TAILOR_RESUME_VERSION = "tailor-resume@6";
+export const TAILOR_RESUME_VERSION = "tailor-resume@7";
 
 const answerSchema = z.object({
   summary: z.string(),
@@ -33,10 +33,12 @@ const answerSchema = z.object({
   education: z.array(z.object({ id: z.string(), notes: z.string() })),
 });
 
-const INSTRUCTIONS = `You tailor a candidate's resume to one job, as JSON.
+const INSTRUCTIONS = `You tailor a candidate's resume to one job, as JSON. It has two readers: an applicant tracking system that matches terms, and a person who skims it for fifteen seconds.
 
-- summary: 2–3 sentences in the first person without "I" at the start of every sentence, about the candidate as this job would see them.
-- roles: every role from the profile, by id, with 2–5 bullets each. Lead with what this job cares about, keep each bullet to one line, and start with a verb.
+- summary: 2–3 sentences in the first person without "I" at the start of every sentence, about the candidate as this job would see them. Open with what fits the job's main requirement.
+- roles: every role from the profile, by id, with 2–5 bullets each. Order them so the bullet that answers the job's most important requirement comes first. Keep each bullet to one line, start it with a strong verb, and show the result or impact where the profile gives one; keep its numbers exactly as they are. Merge related points rather than dropping evidence, and make each bullet a record of impact, not a task list.
+- Much of the value is in what the profile backs but the bullets don't show: a skill in a role's skillsUsed, a project, or one of the candidate's facts that matches a requirement. Bring it into a bullet of the role or project where it was used, never under another one: a skill put under the wrong employer comes apart in an interview.
+- Use the job's own terms for skills and tools where the profile backs them, so they match, but don't stuff keywords or repeat one in every bullet.
 - projects: every project from the profile, by id, with 1–3 bullets each, written like the roles' bullets: what was built and what it shows that this job cares about.
 - skills: the candidate's own skills, most relevant to this job first. Copy their names exactly; you may leave out ones that don't help.
 - education: every entry by id, with its notes shortened or left empty.

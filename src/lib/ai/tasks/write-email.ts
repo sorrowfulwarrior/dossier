@@ -14,6 +14,7 @@ import {
   CREATIVITY,
   jobForPrompt,
   languageRule,
+  NATURAL_VOICE,
   NO_EM_DASHES,
   postingForPrompt,
   profileForPrompt,
@@ -24,7 +25,7 @@ import {
 } from "./prompt-parts";
 import { withoutFrame } from "./write-cover-letter";
 
-export const WRITE_EMAIL_VERSION = "write-email@2";
+export const WRITE_EMAIL_VERSION = "write-email@3";
 
 const answerSchema = z.object({
   contactName: z.string().nullable(),
@@ -67,6 +68,7 @@ export const writeEmail: Task<EmailInput, Unit[]> = async (provider, { profile, 
   const answer = await provider.complete({
     system: system(
       INSTRUCTIONS,
+      NATURAL_VOICE,
       `Tone: ${TONES[tone].label}. ${TONES[tone].description}`,
       truthfulness(options.strict),
       candidateFacts(profile, facts),
