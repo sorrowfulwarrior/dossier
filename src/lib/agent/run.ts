@@ -128,7 +128,7 @@ export async function runAgentScan({ agentId, manual }: { agentId: string; manua
 
   const toScore = fresh.toSorted(newestFirst).slice(0, agent.maxScores);
   await context.step(`Scoring ${toScore.length} ${toScore.length === 1 ? "posting" : "postings"}`);
-  const [score, profile] = await Promise.all([loadPostingScorer(), loadProfile()]);
+  const [provider, options, profile] = await Promise.all([getAiProvider("jobs"), loadTaskOptions(), loadProfile()]);
   let scored = 0;
   let queued = 0;
   const kept: string[] = [];

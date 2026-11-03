@@ -96,10 +96,27 @@ export const API_KEY_UNREADABLE = "Your saved API key can't be read. Please ente
 /** What Settings may know about the API key: never the key itself. */
 export type KeyState = "none" | "set" | "unreadable" | "env";
 
+/**
+ * The kinds of task that can have a model of their own, from the same
+ * provider: a big model for writing and a quick one for scoring, say.
+ * Tasks outside these, such as importing a resume, use the main model.
+ */
+export const AI_PURPOSES = [
+  { value: "resume", label: "Resume", hint: "Tailoring a resume and rewriting its parts." },
+  { value: "letter", label: "Cover letter and email", hint: "Writing, rewriting and refining the letter and the email." },
+  { value: "jobs", label: "Job finding", hint: "Reading postings and scoring them, for Find jobs and the job agents." },
+] as const;
+export type AiPurpose = (typeof AI_PURPOSES)[number]["value"];
+
+/** The setting that holds each purpose's model. */
+export const PURPOSE_MODEL_KEY = { resume: "resumeModel", letter: "letterModel", jobs: "jobsModel" } as const satisfies Record<AiPurpose, string>;
+
 /** What the AI provider section starts from. */
 export type AiSettingsView = {
   provider: AiProvider;
   baseUrl: string;
   model: string;
+  /** Empty means the main model. */
+  purposeModels: Record<AiPurpose, string>;
   keyState: KeyState;
 };

@@ -5,7 +5,7 @@ import { env, type Env } from "@/lib/env";
 import { loadSettings } from "@/lib/settings-data";
 
 import { API_KEY_UNREADABLE, ApiKeyUnreadable, apiKeyState, decryptApiKey } from "./api-key";
-import type { AiSettingsView, KeyState } from "./provider-options";
+import { AI_PURPOSES, PURPOSE_MODEL_KEY, type AiPurpose, type AiSettingsView, type KeyState } from "./provider-options";
 
 // Which provider to use and how to reach it (E6-1): what's saved in Settings,
 // or else the DOSSIER_AI_* variables, or else the defaults below.
@@ -84,9 +84,16 @@ export function resolveAiConfig(saved: SavedSettings | null, source: AiEnv, secr
   };
 }
 
-/** The AI configuration in effect right now. */
-export async function loadAiConfig(): Promise<AiConfig> {
-  return resolveAiConfig(await loadSettings(), env);
+/** The config for one kind of task: its own model if one is saved, else the main one. */
+export function forPurpose(config: AiConfig, saved: Partial<Record<(typeof PURPOSE_MODEL_KEY)[AiPurpose], string | null>> | null, purpose?: AiPurpose): AiConfig {
+  const model = purpose && saved?.[PURPOSE_MODEL_KEY[purpose]];
+  return model ? { ...config, model } : config;
+}
+
+/** The AI configuration in effect right now, for `purpose` if given. */
+export async function loadAiConfig(purpose?: AiPurpose): Promise<AiConfig> {
+  const saved = await loadSettings();
+  return forPurpose(resolveAiConfig(saved, env), saved, purpose);
 }
 
 /**
@@ -100,6 +107,7 @@ export async function loadAiSettingsView(): Promise<AiSettingsView> {
     provider: config.provider,
     baseUrl: config.baseUrl,
     model: config.model ?? "",
+    purposeModels: Object.fromEntries(AI_PURPOSES.map(({ value }) => [value, saved[PURPOSE_MODEL_KEY[value]] ?? ""])) as Record<AiPurpose, string>,
     keyState: keyStateOf(saved, config),
   };
 }

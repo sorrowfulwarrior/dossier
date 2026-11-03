@@ -28,7 +28,8 @@ services:
       # Overrides the localhost URL in .env, which is meant for tools run on the host.
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-dossier}
     ports:
-      - "3000:3000"
+      # DOSSIER_PORT in .env when 3000 is taken (another app on this machine).
+      - "${DOSSIER_PORT:-3000}:3000"
     volumes:
       - .:/app
       # Keep the container's own (Debian) node_modules and build cache

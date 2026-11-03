@@ -108,6 +108,10 @@ export const settingsSchema = z.object({
   model: z.string().nullable().catch(null),
   /** Encrypted with a key derived from DOSSIER_SECRET (E6-2); never sent to the client. */
   apiKeyEnc: z.string().nullable().catch(null),
+  // The provider's model for each kind of task (AI_PURPOSES); null means the model above.
+  resumeModel: z.string().nullable().catch(null),
+  letterModel: z.string().nullable().catch(null),
+  jobsModel: z.string().nullable().catch(null),
   creativity: z.enum(Creativity).catch(Creativity.BALANCED),
   /** "Never invent experience" (SET-4). */
   strict: flag(true),

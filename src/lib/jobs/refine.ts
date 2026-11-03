@@ -70,7 +70,9 @@ export const refineJob = defineJob({
     );
     const targetUnit = target && unitsOf(target.document).find((unit) => unit.id === target.unitId);
 
-    const [provider, options, profile, facts] = await Promise.all([getAiProvider(), loadTaskOptions(), loadProfile(), loadFactTexts(applicationId)]);
+    // The model for the document on screen; with none, the main one.
+    const purpose = viewing === DocumentKind.RESUME ? "resume" : viewing ? "letter" : undefined;
+    const [provider, options, profile, facts] = await Promise.all([getAiProvider(purpose), loadTaskOptions(), loadProfile(), loadFactTexts(applicationId)]);
     const { data, promptVersion } = await refineChat(
       provider,
       {

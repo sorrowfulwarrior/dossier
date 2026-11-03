@@ -9,7 +9,7 @@ import { action, ActionError } from "@/lib/action";
 import { AiError, createProvider } from "@/lib/ai";
 import { applyApiKeyChange } from "@/lib/ai/api-key";
 import { keyStateOf, loadAiConfig, resolveAiConfig } from "@/lib/ai/config";
-import type { KeyState } from "@/lib/ai/provider-options";
+import { AI_PURPOSES, PURPOSE_MODEL_KEY, type KeyState } from "@/lib/ai/provider-options";
 import { DOCUMENT_LANGUAGES } from "@/lib/document-language";
 import { deleteAllBackups } from "@/lib/backups";
 import { env } from "@/lib/env";
@@ -41,10 +41,14 @@ async function currentKeyState(): Promise<KeyState> {
   return keyStateOf(saved, resolveAiConfig(saved, env));
 }
 
+const purposeModel = z.string().trim().max(200).optional();
+
 /**
- * Saves the provider, server address and model (SET-1). A key belongs to
- * its provider: switching provider removes it, so it's never sent to
- * another company's server.
+ * Saves the provider, server address and model (SET-1), and the models
+ * for resumes, letters and job finding; empty means the main model. A key
+ * belongs to its provider: switching provider removes it, so it's never
+ * sent to another company's server, and the task models with it, since
+ * another provider won't have them.
  */
 export const saveAiProvider = action(
   z.object({
@@ -52,13 +56,18 @@ export const saveAiProvider = action(
     // Saved as typed: a half-typed address is harmless, and the connection test explains a wrong one.
     baseUrl: z.string().trim().max(500),
     model: z.string().trim().max(200),
+    purposeModels: z.object({ resume: purposeModel, letter: purposeModel, jobs: purposeModel }).optional(),
   }),
-  async ({ provider, baseUrl, model }) => {
+  async ({ provider, baseUrl, model, purposeModels = {} }) => {
     const current = await loadSettings();
+    // Coming from DOSSIER_AI_* isn't a switch: the task models were chosen for it.
+    const otherProvider = Boolean(current.provider) && current.provider !== provider;
+    const models = AI_PURPOSES.map(({ value }) => [PURPOSE_MODEL_KEY[value], otherProvider ? null : (purposeModels[value] ?? current[PURPOSE_MODEL_KEY[value]]) || null]);
     await saveSettings({
       provider,
       baseUrl: baseUrl || null,
       model: model || null,
+      ...Object.fromEntries(models),
       ...(current.provider !== provider ? { apiKeyEnc: null } : {}),
     });
     return { keyState: await currentKeyState() };

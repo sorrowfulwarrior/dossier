@@ -4,7 +4,7 @@ import { AiProvider } from "@/generated/prisma/enums";
 
 import { loadAiConfig, type AiConfig } from "./config";
 import { AiError } from "./errors";
-import { providerOption } from "./provider-options";
+import { providerOption, type AiPurpose } from "./provider-options";
 import type { AIProvider } from "./provider";
 import { AnthropicProvider } from "./providers/anthropic";
 import { LocalProvider } from "./providers/local";
@@ -14,6 +14,7 @@ import { OpenAICompatibleProvider } from "./providers/openai-compatible";
 
 export { AiError } from "./errors";
 export type { AIProvider, ChatMessage, CompletionRequest, JsonCompletionRequest } from "./provider";
+export type { AiPurpose } from "./provider-options";
 
 /** A provider for `config`. A saved key that can't be read stops hosted providers with a clear message. */
 export function createProvider(config: AiConfig): AIProvider {
@@ -33,7 +34,10 @@ export function createProvider(config: AiConfig): AIProvider {
   }
 }
 
-/** The provider configured in Settings, or by the DOSSIER_AI_* variables. */
-export async function getAiProvider(): Promise<AIProvider> {
-  return createProvider(await loadAiConfig());
+/**
+ * The provider configured in Settings, or by the DOSSIER_AI_* variables,
+ * with the model saved for `purpose` if there is one.
+ */
+export async function getAiProvider(purpose?: AiPurpose): Promise<AIProvider> {
+  return createProvider(await loadAiConfig(purpose));
 }

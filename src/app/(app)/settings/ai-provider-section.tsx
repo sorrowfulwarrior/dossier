@@ -10,7 +10,7 @@ import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import type { AiProvider } from "@/generated/prisma/enums";
-import { API_KEY_UNREADABLE, PROVIDER_OPTIONS, providerOption, type AiSettingsView } from "@/lib/ai/provider-options";
+import { AI_PURPOSES, API_KEY_UNREADABLE, PROVIDER_OPTIONS, providerOption, type AiPurpose, type AiSettingsView } from "@/lib/ai/provider-options";
 import { cn } from "@/lib/cn";
 import { useAutosave } from "@/hooks/use-autosave";
 
@@ -29,6 +29,7 @@ const toModelList = (result: Awaited<ReturnType<typeof listAiModels>>): ModelLis
   result.ok ? { loading: false, ...result.data } : { loading: false, models: [], problem: result.error };
 
 const OTHER_MODEL = "__other";
+const NO_PURPOSE_MODELS: Record<AiPurpose, string> = { resume: "", letter: "", jobs: "" };
 const looksLikeUrl = (value: string) => /^https?:\/\/\S+$/i.test(value.trim());
 
 /** What a hosted model is sent (profileForPrompt and the tasks in src/lib/ai/tasks; PRIVACY.md). */
@@ -45,6 +46,7 @@ export function AiProviderSection({ initial }: { initial: AiSettingsView }) {
   const [provider, setProvider] = useState(initial.provider);
   const [baseUrl, setBaseUrl] = useState(initial.baseUrl);
   const [model, setModel] = useState(initial.model);
+  const [purposeModels, setPurposeModels] = useState(initial.purposeModels);
   const [keyState, setKeyState] = useState(initial.keyState);
   const [keyInput, setKeyInput] = useState("");
   const [otherModel, setOtherModel] = useState(false);
@@ -72,7 +74,7 @@ export function AiProviderSection({ initial }: { initial: AiSettingsView }) {
   // SET-2: any change to the provider fields means the last test no longer counts.
   const changed = () => setConnection({ status: "untested" });
 
-  const fields = useMemo(() => ({ provider, baseUrl, model }), [provider, baseUrl, model]);
+  const fields = useMemo(() => ({ provider, baseUrl, model, purposeModels }), [provider, baseUrl, model, purposeModels]);
   const savedServer = useRef(`${initial.provider} ${initial.baseUrl}`);
   const { flush } = useAutosave(fields, async (value) => {
     const result = await track(saveAiProvider(value));
@@ -99,6 +101,8 @@ export function AiProviderSection({ initial }: { initial: AiSettingsView }) {
     setProvider(next);
     setBaseUrl(nextOption.defaultUrl);
     setModel(nextOption.defaultModel);
+    // Another provider won't have these models.
+    setPurposeModels(NO_PURPOSE_MODELS);
     setOtherModel(false);
     setUrlLeft(false);
     setKeyInput("");
@@ -278,6 +282,31 @@ export function AiProviderSection({ initial }: { initial: AiSettingsView }) {
           </div>
         )}
 
+        <fieldset className="flex flex-col gap-3 sm:col-span-2">
+          <legend className="text-label text-muted">Models per task</legend>
+          <p className="text-meta text-muted">
+            Use a different model from this provider for some tasks, such as a stronger one for writing and a quicker one for scoring postings.
+            Everything else uses the model above.
+          </p>
+          <div className="grid grid-cols-1 gap-x-[18px] gap-y-4 sm:grid-cols-3">
+            {AI_PURPOSES.map((purpose) => (
+              <PurposeModelField
+                // A new provider starts every field over, out of "Other model…" too.
+                key={`${provider} ${purpose.value}`}
+                label={purpose.label}
+                hint={purpose.hint}
+                value={purposeModels[purpose.value]}
+                models={modelList.loading ? [] : modelList.models}
+                onChange={(next, now) => {
+                  setPurposeModels((current) => ({ ...current, [purpose.value]: next }));
+                  if (now) setSaveNow((count) => count + 1);
+                }}
+                onBlur={flush}
+              />
+            ))}
+          </div>
+        </fieldset>
+
         <div className="flex flex-wrap items-center gap-3.5 pt-1 sm:col-span-2">
           <Button variant="secondary" onClick={() => void test()} disabled={connection.status === "testing"}>
             {connection.status === "testing" ? "Testing…" : "Test connection"}
@@ -286,6 +315,65 @@ export function AiProviderSection({ initial }: { initial: AiSettingsView }) {
         </div>
       </Card>
     </>
+  );
+}
+
+/**
+ * The model for one kind of task: the main model unless one is picked.
+ * `now` asks to save at once, as for the main model's select.
+ */
+function PurposeModelField({
+  label,
+  hint,
+  value,
+  models,
+  onChange,
+  onBlur,
+}: {
+  label: string;
+  hint: string;
+  value: string;
+  models: string[];
+  onChange: (value: string, now: boolean) => void;
+  onBlur: () => void;
+}) {
+  const [other, setOther] = useState(false);
+  const options = [...new Set([...models, value].filter(Boolean))];
+  return (
+    <div className="flex flex-col gap-2.5">
+      <Select
+        label={label}
+        hint={hint}
+        value={other ? OTHER_MODEL : value}
+        onChange={(event) => {
+          if (event.target.value === OTHER_MODEL) {
+            setOther(true);
+            return;
+          }
+          setOther(false);
+          onChange(event.target.value, true);
+        }}
+      >
+        <option value="">Same as the main model</option>
+        {options.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+        <option value={OTHER_MODEL}>Other model…</option>
+      </Select>
+      {other && (
+        <Input
+          label={`${label} model name`}
+          value={value}
+          placeholder="e.g. llama3.1:8b"
+          spellCheck={false}
+          autoFocus
+          onChange={(event) => onChange(event.target.value, false)}
+          onBlur={onBlur}
+        />
+      )}
+    </div>
   );
 }
 

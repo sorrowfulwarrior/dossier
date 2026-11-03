@@ -14,6 +14,9 @@ const nextConfig: NextConfig = {
     serverFunctions: false,
   },
   poweredByHeader: false,
+  // The dev server only trusts localhost; also trust the address Dossier is
+  // reached at (e.g. through Tailscale), so hot reload works there.
+  allowedDevOrigins: URL.canParse(process.env.DOSSIER_PUBLIC_URL ?? "") ? [new URL(process.env.DOSSIER_PUBLIC_URL!).hostname] : [],
   // The calendar moved onto the dashboard (E15-6). The query goes along, so
   // an old link's ?date= opens that day there.
   async redirects() {

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { encryptApiKey } from "./api-key";
-import { isAiUsable, resolveAiConfig } from "./config";
+import { forPurpose, isAiUsable, resolveAiConfig } from "./config";
 import { AiError } from "./errors";
 import { createProvider } from "./index";
 
@@ -76,6 +76,22 @@ describe("resolveAiConfig", () => {
     const config = resolveAiConfig(saved, noEnv);
     expect(config).toMatchObject({ apiKey: null, apiKeyProblem: "Your saved API key can't be read. Please enter it again." });
     expect(() => createProvider(config)).toThrow(AiError);
+  });
+});
+
+describe("forPurpose", () => {
+  const config = resolveAiConfig({ ...nothingSaved, provider: "LOCAL", model: "qwen2.5:3b" }, noEnv);
+
+  it("uses a task's own model, from the same provider", () => {
+    const models = { resumeModel: "llama3.1:8b", letterModel: null, jobsModel: "" };
+    expect(forPurpose(config, models, "resume")).toEqual({ ...config, model: "llama3.1:8b" });
+  });
+
+  it("falls back to the main model when the task has none, or for other tasks", () => {
+    const models = { resumeModel: "llama3.1:8b", letterModel: null, jobsModel: "" };
+    expect(forPurpose(config, models, "letter").model).toBe("qwen2.5:3b");
+    expect(forPurpose(config, models, "jobs").model).toBe("qwen2.5:3b");
+    expect(forPurpose(config, models).model).toBe("qwen2.5:3b");
   });
 });
 

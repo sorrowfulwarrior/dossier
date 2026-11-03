@@ -79,6 +79,21 @@ describe("saveAiProvider", () => {
   });
 });
 
+describe("saveAiProvider's task models", () => {
+  it("saves a model for each kind of task, empty for the main one, and keeps them when not sent", async () => {
+    await saveAiProvider({ provider: "LOCAL", baseUrl: "", model: "qwen2.5:3b", purposeModels: { resume: " llama3.1:8b ", letter: "", jobs: "phi4-mini" } });
+    expect(await settings()).toMatchObject({ resumeModel: "llama3.1:8b", letterModel: null, jobsModel: "phi4-mini" });
+    await saveAiProvider({ provider: "LOCAL", baseUrl: "", model: "qwen2.5:7b" });
+    expect(await settings()).toMatchObject({ model: "qwen2.5:7b", resumeModel: "llama3.1:8b", jobsModel: "phi4-mini" });
+  });
+
+  it("drops them with another provider, which won't have those models", async () => {
+    await saveAiProvider({ provider: "LOCAL", baseUrl: "", model: "qwen2.5:3b", purposeModels: { resume: "llama3.1:8b" } });
+    await saveAiProvider({ provider: "ANTHROPIC", baseUrl: "", model: "claude-sonnet-5", purposeModels: { resume: "llama3.1:8b" } });
+    expect(await settings()).toMatchObject({ provider: "ANTHROPIC", resumeModel: null });
+  });
+});
+
 describe("saveApiKey", () => {
   it("stores the key encrypted and only says that it's set", async () => {
     await saveAiProvider({ provider: "ANTHROPIC", baseUrl: "", model: "claude-sonnet-5" });

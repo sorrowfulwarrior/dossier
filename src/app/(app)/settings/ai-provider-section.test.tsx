@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,7 +15,8 @@ vi.mock("./actions", () => ({
 }));
 vi.mock("@/components/toast", () => ({ toast: vi.fn(), toastResult: (result: unknown) => result }));
 
-const local: AiSettingsView = { provider: "LOCAL", baseUrl: "http://ollama:11434", model: "qwen2.5:3b", keyState: "none" };
+const local: AiSettingsView = { provider: "LOCAL", baseUrl: "http://ollama:11434", model: "qwen2.5:3b", purposeModels: { resume: "", letter: "", jobs: "" }, keyState: "none" };
+const noPurposeModels = { resume: "", letter: "", jobs: "" };
 
 beforeEach(() => {
   vi.mocked(saveAiProvider).mockReset().mockResolvedValue({ ok: true, data: { keyState: "none" } });
@@ -37,7 +38,7 @@ describe("AiProviderSection", () => {
     ]);
     expect(screen.getByRole("radio", { name: "Local model" })).toBeChecked();
     expect(screen.getByLabelText("Server address")).toHaveValue("http://ollama:11434");
-    expect(await screen.findByRole("option", { name: "llama3.1:8b" })).toBeInTheDocument();
+    expect(await within(screen.getByLabelText("Model")).findByRole("option", { name: "llama3.1:8b" })).toBeInTheDocument();
     expect(screen.getByLabelText("Model")).toHaveValue("qwen2.5:3b");
     expect(screen.getByText("Not needed for a local model")).toBeInTheDocument();
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
@@ -51,7 +52,7 @@ describe("AiProviderSection", () => {
     expect(screen.getByRole("note")).toHaveTextContent(/depend on your account with Anthropic\.$/);
     expect(screen.getByLabelText("API key")).toHaveAttribute("placeholder", "Stored encrypted on your server");
     await waitFor(() =>
-      expect(saveAiProvider).toHaveBeenCalledWith({ provider: "ANTHROPIC", baseUrl: "https://api.anthropic.com", model: "claude-sonnet-5" }),
+      expect(saveAiProvider).toHaveBeenCalledWith({ provider: "ANTHROPIC", baseUrl: "https://api.anthropic.com", model: "claude-sonnet-5", purposeModels: noPurposeModels }),
     );
   });
 
@@ -62,7 +63,7 @@ describe("AiProviderSection", () => {
     expect(screen.getByRole("note")).toHaveTextContent(/^Mistral receives what each task needs: .* depend on your account with Mistral\.$/);
     expect(screen.getByLabelText("API key")).toBeInTheDocument();
     await waitFor(() =>
-      expect(saveAiProvider).toHaveBeenCalledWith({ provider: "MISTRAL", baseUrl: "https://api.mistral.ai/v1", model: "mistral-medium-latest" }),
+      expect(saveAiProvider).toHaveBeenCalledWith({ provider: "MISTRAL", baseUrl: "https://api.mistral.ai/v1", model: "mistral-medium-latest", purposeModels: noPurposeModels }),
     );
   });
 
@@ -74,7 +75,7 @@ describe("AiProviderSection", () => {
     expect(screen.getByLabelText("API token")).toBeInTheDocument();
     expect(screen.getByText("Only needed if you've turned on authentication in LM Studio's server settings.")).toBeInTheDocument();
     expect(screen.queryByRole("note")).not.toBeInTheDocument();
-    await waitFor(() => expect(saveAiProvider).toHaveBeenCalledWith({ provider: "LMSTUDIO", baseUrl: "http://host.docker.internal:1234", model: "" }));
+    await waitFor(() => expect(saveAiProvider).toHaveBeenCalledWith({ provider: "LMSTUDIO", baseUrl: "http://host.docker.internal:1234", model: "", purposeModels: noPurposeModels }));
   });
 
   it("saves a key when you leave the field, then forgets it in the browser (E6-2)", async () => {
@@ -111,12 +112,37 @@ describe("AiProviderSection", () => {
 
   it("lets you type a model that isn't listed", async () => {
     render(<AiProviderSection initial={local} />);
-    await screen.findByRole("option", { name: "llama3.1:8b" });
+    await within(screen.getByLabelText("Model")).findByRole("option", { name: "llama3.1:8b" });
     await userEvent.selectOptions(screen.getByLabelText("Model"), "Other model…");
     await userEvent.clear(screen.getByLabelText("Model name"));
     await userEvent.type(screen.getByLabelText("Model name"), "mistral-nemo:12b");
     await userEvent.tab();
     await waitFor(() => expect(saveAiProvider).toHaveBeenLastCalledWith(expect.objectContaining({ model: "mistral-nemo:12b" })));
+  });
+
+  it("lets each kind of task use its own model, the main one unless picked", async () => {
+    render(<AiProviderSection initial={local} />);
+    await within(screen.getByLabelText("Model")).findByRole("option", { name: "llama3.1:8b" });
+    expect(screen.getByLabelText("Resume")).toHaveValue("");
+    expect(screen.getByLabelText("Job finding")).toHaveDisplayValue("Same as the main model");
+    await userEvent.selectOptions(screen.getByLabelText("Cover letter and email"), "llama3.1:8b");
+    await waitFor(() =>
+      expect(saveAiProvider).toHaveBeenLastCalledWith(expect.objectContaining({ model: "qwen2.5:3b", purposeModels: { resume: "", letter: "llama3.1:8b", jobs: "" } })),
+    );
+    await userEvent.selectOptions(screen.getByLabelText("Job finding"), "Other model…");
+    await userEvent.type(screen.getByLabelText("Job finding model name"), "phi4-mini");
+    await userEvent.tab();
+    await waitFor(() =>
+      expect(saveAiProvider).toHaveBeenLastCalledWith(expect.objectContaining({ purposeModels: { resume: "", letter: "llama3.1:8b", jobs: "phi4-mini" } })),
+    );
+  });
+
+  it("starts the task models over with another provider", async () => {
+    render(<AiProviderSection initial={{ ...local, purposeModels: { resume: "qwen2.5:3b", letter: "", jobs: "" } }} />);
+    expect(screen.getByLabelText("Resume")).toHaveValue("qwen2.5:3b");
+    await userEvent.click(screen.getByRole("radio", { name: "Anthropic" }));
+    expect(screen.getByLabelText("Resume")).toHaveValue("");
+    await waitFor(() => expect(saveAiProvider).toHaveBeenLastCalledWith(expect.objectContaining({ provider: "ANTHROPIC", purposeModels: noPurposeModels })));
   });
 
   it("explains why the model list is empty", async () => {

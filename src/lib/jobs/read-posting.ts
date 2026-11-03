@@ -26,7 +26,7 @@ export const readPostingJob = defineJob({
   }),
   async run({ posting }, { step, signal }) {
     await step(READ_POSTING_STEPS[0]);
-    const [provider, options, profile] = await Promise.all([getAiProvider(), loadTaskOptions(), loadProfile()]);
+    const [provider, options, profile] = await Promise.all([getAiProvider("jobs"), loadTaskOptions(), loadProfile()]);
 
     await step(READ_POSTING_STEPS[1]);
     const extraction = await extractPosting(provider, { posting }, { ...options, signal });
