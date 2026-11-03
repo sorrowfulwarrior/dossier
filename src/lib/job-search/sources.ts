@@ -10,6 +10,8 @@ export type JobSearchSettingsView = {
   adzuna: { appId: string; keyState: JobKeyState };
   /** Whether this server offers the Bundesagentur für Arbeit, and when its note was accepted (#223). */
   arbeitsagentur: { offered: boolean; acceptedAt: string | null };
+  /** The FreeHire it searches: "freehire.me", or a self-hosted one's host (DOSSIER_FREEHIRE_URL). */
+  freehire: { host: string };
   /** One token for both Apify actors, and the most results a run asks for. */
   apify: { keyState: JobKeyState; maxResults: number };
 };
@@ -23,8 +25,6 @@ export const APIFY_ACTOR_URLS = {
 } as const;
 /** The results a run may ask for, in Settings → Job agent → Apify. */
 export const APIFY_MAX_RESULTS = [10, 25, 50, 100] as const;
-
-export const JOB_KEY_UNREADABLE = "Your saved key can't be read. Please enter it again.";
 
 /** Where to get a JSearch key, by where it's from. */
 export const JSEARCH_KEY_URLS: Record<JSearchHost, string> = {
@@ -113,6 +113,7 @@ export const SOURCE_INFO: Record<JobSource, SourceInfo> = {
     attribution: null,
     attributionLink: null,
     countries: null,
+    radius: true,
   },
   APIFY_INDEED: {
     name: "Indeed (Apify)",
@@ -123,6 +124,7 @@ export const SOURCE_INFO: Record<JobSource, SourceInfo> = {
     attribution: null,
     attributionLink: null,
     countries: null,
+    radius: true,
   },
 };
 

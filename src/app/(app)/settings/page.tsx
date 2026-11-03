@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { headers } from "next/headers";
 
-import { isAiConfigured, loadAiConfig, loadAiSettingsView } from "@/lib/ai/config";
+import { loadAiConfig, loadAiSettingsView } from "@/lib/ai/config";
 import { listAgents } from "@/lib/agent/agents";
 import { jobSearchView, loadJobSearchConfig, sourceReady } from "@/lib/job-search/config";
 import { COUNTRIES } from "@/lib/job-search/countries";
@@ -246,7 +246,7 @@ async function agentSection() {
       sources={sources}
       // A new agent starts from the last search in Find jobs.
       newQuery={(await loadSearch())?.query ?? EMPTY_QUERY}
-      aiReady={await isAiConfigured()}
+      scoring={await scoringReadiness()}
       countries={COUNTRIES}
       timeZone={await lastKnownTimeZone()}
       apify={{ keyState: config.apify.keyState, maxResults: config.apify.maxResults }}

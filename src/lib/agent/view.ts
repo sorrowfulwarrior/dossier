@@ -134,7 +134,7 @@ export async function loadAgentView(now = new Date()): Promise<AgentView> {
         autoDraft: agent.autoDraft,
         minScore: agent.minScore,
         search: query.keywords.trim()
-          ? `${describeSearch(query, countryName(query.country) || query.country.toUpperCase())} · via ${SOURCE_INFO[source].name}`
+          ? `${describeSearch(query, countryName(query.country) || query.country.toUpperCase(), source)} · via ${SOURCE_INFO[source].name}`
           : null,
         setupProblem,
         setupSection: setupProblem ? sectionOf(setupProblem) : null,

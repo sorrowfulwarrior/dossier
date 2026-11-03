@@ -8,7 +8,7 @@ import { AiError } from "@/lib/ai/errors";
 import { searchPostings } from "@/lib/job-search";
 import { credentialsFor, loadJobSearchConfig, requestContext } from "@/lib/job-search/config";
 import { JobSearchError } from "@/lib/job-search/errors";
-import { isApifySource, postingKey, postingText, type FoundPosting, type JobSource, type SearchQuery } from "@/lib/job-search/search";
+import { isApifySource, postingKey, type FoundPosting, type JobSource, type SearchQuery } from "@/lib/job-search/search";
 import { SOURCE_INFO } from "@/lib/job-search/sources";
 import { startJob, type JobContext } from "@/lib/jobs/runner";
 import { logServerError } from "@/lib/log";
@@ -16,6 +16,7 @@ import { saveScore } from "@/lib/posting-scores";
 import { postingStates } from "@/lib/postings";
 import { prisma } from "@/lib/prisma";
 import { loadProfile } from "@/lib/profile-data";
+import { loadPostingScorer, scoringProblem } from "@/lib/scoring";
 
 import { loadAgent } from "./agents";
 import { agentDedupeKey, candidateData } from "./candidates";
@@ -50,9 +51,11 @@ export const agentQueryReady = (query: SearchQuery) => Boolean(query.keywords.tr
 export async function agentSetupProblem({ query, source }: { query: SearchQuery; source: JobSource }): Promise<string | null> {
   if (!query.keywords.trim()) return "Add what to look for in Settings → Job agent first.";
   if (!query.country) return "Choose a country for the search in Settings → Job agent first.";
-  if (!(await isAiConfigured())) return "Choose an AI provider in Settings → AI provider first.";
+  // Scoring is what a run does; drafts ask the AI provider when there are any.
+  const scoring = await scoringProblem();
+  if (scoring) return scoring;
   // It searches on its own, which the BA's terms forbid most clearly (#223).
-  if (source === "ARBEITSAGENTUR") return "The job agent doesn't search the Bundesagentur für Arbeit. Choose another source for it in Settings → Job agent first.";
+  if (source === "ARBEITSAGENTUR") return "The job agent doesn't search the Bundesagentur für Arbeit. Choose JSearch, Adzuna, FreeHire or Apify for it in Settings → Job agent first.";
   const config = await loadJobSearchConfig();
   try {
     credentialsFor(config, source);
@@ -128,7 +131,7 @@ export async function runAgentScan({ agentId, manual }: { agentId: string; manua
 
   const toScore = fresh.toSorted(newestFirst).slice(0, agent.maxScores);
   await context.step(`Scoring ${toScore.length} ${toScore.length === 1 ? "posting" : "postings"}`);
-  const [provider, options, profile] = await Promise.all([getAiProvider("jobs"), loadTaskOptions(), loadProfile()]);
+  const [score, profile] = await Promise.all([loadPostingScorer(), loadProfile()]);
   let scored = 0;
   let queued = 0;
   const kept: string[] = [];
@@ -136,11 +139,7 @@ export async function runAgentScan({ agentId, manual }: { agentId: string; manua
   for (const posting of toScore) {
     if (context.signal.aborted) break;
     try {
-      const { data, promptVersion } = await scorePosting(
-        provider,
-        { posting: postingText(posting), title: posting.title, company: posting.company, place: posting.place, remote: posting.remote, salary: posting.salary, profile },
-        { ...options, signal: context.signal },
-      );
+      const { data, scoredWith } = await score(posting, profile, context.signal);
       const candidate = await prisma.agentCandidate.create({ data: { ...candidateData(posting, data), agent: { connect: { id: agent.id } } }, select: { id: true } });
       // Find jobs shows it too (#208).
       await saveScore(posting, data, scoredWith);

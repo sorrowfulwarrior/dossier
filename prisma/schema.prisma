@@ -584,6 +584,7 @@ enum PostingSource {
   JSEARCH
   ADZUNA
   ARBEITSAGENTUR
+  FREEHIRE
   /// Apify's curious_coder/linkedin-jobs-scraper, through Apify's MCP server.
   APIFY_LINKEDIN
   /// Apify's curious_coder/indeed-scraper, through Apify's MCP server.

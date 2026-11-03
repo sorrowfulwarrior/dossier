@@ -194,7 +194,7 @@ export async function importExport(db: PrismaClient, data: DossierExport): Promi
       await tx.postingSearch.createMany({
         data: searches.map((search) => ({ ...search, query: (search.query ?? {}) as Prisma.InputJsonValue, postings: (search.postings ?? []) as Prisma.InputJsonValue })),
       });
-      // The job agents (E16), without runs; a file before version 6 has its one agent in the settings, which become an agent when next read.
+      // The job agents (E16), without runs; a file before version 8 has its one agent in the settings, which become an agent when next read.
       await tx.jobAgent.createMany({
         data: jobAgents.map((agent) => ({ ...agent, query: (agent.query ?? {}) as Prisma.InputJsonValue, runs: [] })),
       });

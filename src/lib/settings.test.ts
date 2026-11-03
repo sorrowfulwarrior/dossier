@@ -65,6 +65,8 @@ describe("stored settings", () => {
       adzunaAppId: null,
       adzunaKeyEnc: null,
       arbeitsagenturAcceptedAt: null,
+      scorer: null,
+      typesafeKeyEnc: null,
       apifyTokenEnc: null,
       apifyMaxResults: 25,
       startupsViewedAt: null,
@@ -109,7 +111,7 @@ describe("stored settings", () => {
       quietDays: 14,
       jobRetentionHours: 168,
     } satisfies Partial<SettingsData>;
-    const rows = Object.entries(saved).map(([key, value]) => ({ key, value: typeof value === "object" ? JSON.stringify(value) : String(value) }));
+    const rows = Object.entries(saved).map(([key, value]) => ({ key, value: settingValue(value)! }));
     expect(rows).toContainEqual({ key: "strict", value: "false" });
     expect(rows).toContainEqual({ key: "customLanguages", value: '["Farsi","Hebrew"]' });
     expect(rows).toContainEqual({ key: "quietDays", value: "14" });

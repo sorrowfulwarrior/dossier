@@ -43,7 +43,7 @@ export async function loadPostingScorer(): Promise<PostingScorer> {
     return (posting, profile, signal) => scoreWithJev(posting, profile, { key, signal });
   }
   if (!(await isAiConfigured())) throw AiError.config(AI_PROVIDER_MISSING);
-  const [provider, options] = await Promise.all([getAiProvider(), loadTaskOptions()]);
+  const [provider, options] = await Promise.all([getAiProvider("jobs"), loadTaskOptions()]);
   return async (posting, profile, signal) => {
     const { title, company, place, remote, salary } = posting;
     const { data, promptVersion } = await scorePosting(provider, { posting: postingText(posting), title, company, place, remote, salary, profile }, { ...options, signal });

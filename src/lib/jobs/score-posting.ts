@@ -30,13 +30,9 @@ export const scorePostingJob = defineJob({
       description = (await fullText(posting)) ?? posting.description;
     }
     await step("Scoring it against your profile");
-    const [provider, options, profile] = await Promise.all([getAiProvider("jobs"), loadTaskOptions(), loadProfile()]);
-    const { data, promptVersion } = await scorePosting(
-      provider,
-      { posting: postingText({ ...posting, description }), title: posting.title, company: posting.company, place: posting.place, remote: posting.remote, salary: posting.salary, profile },
-      { ...options, signal },
-    );
-    await saveScore(posting, data, promptVersion);
+    const [score, profile] = await Promise.all([loadPostingScorer(), loadProfile()]);
+    const { data, scoredWith } = await score({ ...posting, description }, profile, signal);
+    await saveScore(posting, data, scoredWith);
     return data;
   },
 });

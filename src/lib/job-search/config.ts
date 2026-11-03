@@ -26,6 +26,8 @@ export type JobSearchConfig = {
    * when its note was accepted. Its searches wait until then.
    */
   arbeitsagentur: { offered: boolean; acceptedAt: string | null };
+  /** The FreeHire to search: freehire.me, or a self-hosted one (DOSSIER_FREEHIRE_URL). */
+  freehire: { url: string };
   /** Apify (APIFY_LINKEDIN and APIFY_INDEED): one token, and the most results a run asks for. */
   apify: { key: string | null; keyState: JobKeyState; maxResults: number };
 };
@@ -42,6 +44,7 @@ type JobEnv = Pick<
   | "DOSSIER_JSEARCH_HOST"
   | "DOSSIER_ADZUNA_APP_ID"
   | "DOSSIER_ADZUNA_KEY"
+  | "DOSSIER_FREEHIRE_URL"
   | "DOSSIER_JOBS_ARBEITSAGENTUR"
   | "DOSSIER_APIFY_TOKEN"
 >;
@@ -50,6 +53,7 @@ const FROM_ENV: Record<NonNullable<Env["DOSSIER_JOBS_SOURCE"]>, JobSource | null
   jsearch: "JSEARCH",
   adzuna: "ADZUNA",
   arbeitsagentur: "ARBEITSAGENTUR",
+  freehire: "FREEHIRE",
   "apify-linkedin": "APIFY_LINKEDIN",
   "apify-indeed": "APIFY_INDEED",
   off: null,
@@ -86,6 +90,7 @@ export function resolveJobSearchConfig(saved: SavedJobSettings, source: JobEnv, 
       ...keyOf(saved.adzunaKeyEnc, source.DOSSIER_ADZUNA_KEY, secret),
     },
     arbeitsagentur: { offered, acceptedAt: saved.arbeitsagenturAcceptedAt },
+    freehire: { url: source.DOSSIER_FREEHIRE_URL ?? FREEHIRE_URL },
     apify: { ...keyOf(saved.apifyTokenEnc ?? null, source.DOSSIER_APIFY_TOKEN, secret), maxResults: saved.apifyMaxResults ?? APIFY_DEFAULT_MAX_RESULTS },
   };
 }
@@ -112,6 +117,7 @@ export function jobSearchView(config: JobSearchConfig): JobSearchSettingsView {
     jsearch: { host: config.jsearch.host, keyState: config.jsearch.keyState },
     adzuna: { appId: config.adzuna.appId, keyState: config.adzuna.keyState },
     arbeitsagentur: config.arbeitsagentur,
+    freehire: { host: new URL(config.freehire.url).host },
     apify: { keyState: config.apify.keyState, maxResults: config.apify.maxResults },
   };
 }
@@ -162,6 +168,8 @@ export function credentialsFor<S extends JobSource>(config: JobSearchConfig, sou
       if (!config.arbeitsagentur.acceptedAt) throw jobSearchError("not-accepted", source);
       return {} as SourceCredentials[S];
     }
+    case "FREEHIRE":
+      return {} as SourceCredentials[S];
     case "APIFY_LINKEDIN":
     case "APIFY_INDEED": {
       const { key, keyState, maxResults } = config.apify;

@@ -44,7 +44,7 @@ const open = (props: Partial<Parameters<typeof AgentSection>[0]> = {}) =>
       agents={[agent]}
       sources={sources}
       newQuery={agent.query}
-      aiReady
+      scoring={{ scorer: "AI", ready: true }}
       countries={countries}
       timeZone="Europe/Berlin"
       apify={{ keyState: "set", maxResults: 25 }}
@@ -123,11 +123,18 @@ describe("Settings → Job agent (E16-7)", () => {
   });
 
   it("points to the AI provider while it isn't set up, and has the Apify section", () => {
-    open({ aiReady: false, agents: [] });
+    open({ scoring: { scorer: "AI", ready: false }, agents: [] });
+    expect(screen.getAllByRole("note")[0]).toHaveTextContent("The agents score postings with the AI provider in Settings → AI provider, which isn't set up yet. Choose one first.");
     expect(screen.getByRole("link", { name: "Settings → AI provider" })).toHaveAttribute("href", "/settings?section=ai");
     expect(screen.getByText(/No job agents yet/)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Apify" })).toBeInTheDocument();
     expect(screen.getByLabelText("Results per run, at most")).toHaveValue("25");
+  });
+
+  it("asks for the TypeSafe key when Jev scores without one (#274)", () => {
+    open({ scoring: { scorer: "JEV", ready: false }, agents: [] });
+    expect(screen.getAllByRole("note")[0]).toHaveTextContent("The agents score postings with Jev, which needs your TypeSafe key in Settings → Scoring.");
+    expect(screen.getByRole("link", { name: "Settings → Scoring" })).toHaveAttribute("href", "/settings?section=scoring");
   });
 
   it("switches back and says why when a change isn't saved", async () => {

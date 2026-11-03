@@ -25,6 +25,7 @@ const ADAPTERS: { [S in JobSource]: JobSourceAdapter<S> } = {
   JSEARCH: jsearch,
   ADZUNA: adzuna,
   ARBEITSAGENTUR: arbeitsagentur,
+  FREEHIRE: freehire,
   APIFY_LINKEDIN: apifyLinkedin,
   APIFY_INDEED: apifyIndeed,
 };

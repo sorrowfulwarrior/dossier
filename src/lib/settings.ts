@@ -160,6 +160,11 @@ export const settingsSchema = z.object({
   adzunaKeyEnc: z.string().nullable().catch(null),
   /** When "I understand" was ticked under the Bundesagentur für Arbeit's note (#223); its searches wait for it. */
   arbeitsagenturAcceptedAt: z.iso.datetime().nullable().catch(null),
+  // Scoring (#274): what Score in Find jobs and the job agent score postings
+  // with. Null means "not set in the app": DOSSIER_SCORER decides, else the
+  // AI model. Jev's key is encrypted like the others, under its own key.
+  scorer: z.enum(SCORERS).nullable().catch(null),
+  typesafeKeyEnc: z.string().nullable().catch(null),
   // Apify (job sources APIFY_LINKEDIN and APIFY_INDEED), reached through
   // its MCP server. The token is encrypted like the other keys; each run
   // costs on the user's Apify account, so it's capped at this many results.

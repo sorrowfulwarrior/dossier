@@ -16,10 +16,12 @@ import { useAutosave } from "@/hooks/use-autosave";
 import type { Country } from "@/lib/job-search/countries";
 import { searchHref, type JobSource, type SearchQuery } from "@/lib/job-search/search";
 import type { JobKeyState } from "@/lib/job-search/sources";
+import type { Scorer } from "@/lib/scoring/scorers";
 
 import { createJobAgent, deleteJobAgent, saveJobAgent } from "../agent/actions";
 import { RemoteOnlyField, SearchFields, type SearchFieldErrors } from "../jobs/search-fields";
 import { ApifySection } from "./apify-section";
+import { SETTINGS_SECTIONS, settingsSectionHref, type SettingsSectionId } from "./sections";
 import { SettingsSectionIntro } from "./settings-screen";
 
 export type AgentSettings = {
@@ -56,7 +58,7 @@ export function AgentSection({
   agents: initial,
   sources,
   newQuery,
-  aiReady,
+  scoring,
   countries,
   timeZone,
   apify,
@@ -66,7 +68,8 @@ export function AgentSection({
   sources: readonly AgentSourceChoice[];
   /** Where a new agent's search starts: the last one in Find jobs. */
   newQuery: SearchQuery;
-  aiReady: boolean;
+  /** What scores the postings (Settings → Scoring), and whether it's set up. */
+  scoring: { scorer: Scorer; ready: boolean };
   countries: readonly Country[];
   /** The user's time zone, which the hour is in. */
   timeZone: string;
@@ -102,14 +105,10 @@ export function AgentSection({
         the Agent screen. They never send or apply.
       </SettingsSectionIntro>
 
-      {!aiReady && (
-        <p role="note" className="rounded-card bg-warning-surface px-4 py-3 text-meta text-warning">
-          The agents score postings with the AI provider in{" "}
-          <Link href="/settings?section=ai" className="font-medium text-warning underline underline-offset-2">
-            Settings → AI provider
-          </Link>
-          , which isn&apos;t set up yet. Choose one first.
-        </p>
+      {scoring.ready ? null : scoring.scorer === "JEV" ? (
+        <SetupNote before="The agents score postings with Jev, which needs your TypeSafe key in " section="scoring" after="." />
+      ) : (
+        <SetupNote before="The agents score postings with the AI provider in " section="ai" after=", which isn't set up yet. Choose one first." />
       )}
 
       {agents.length === 0 && (

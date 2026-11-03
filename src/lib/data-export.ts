@@ -40,15 +40,15 @@ import { appVersion } from "@/lib/version";
 // behind: they belong to the server or the mailbox, not the user's data.
 
 export const EXPORT_FORMAT = "dossier-export";
-/** Bump when the file's shape changes; imports refuse versions they don't know. 2 added Find jobs' postings and keys (E14-9), 3 projects (PRO-13) and the job agent (E16), 4 facts (PRO-14, APP-15), 5 publications (#218), the profile photo's theme and application options (#224) and Startups (#222), 6 several job agents and the Apify token. */
-export const EXPORT_SCHEMA_VERSION = 6;
+/** Bump when the file's shape changes; imports refuse versions they don't know. 2 added Find jobs' postings and keys (E14-9), 3 projects (PRO-13) and the job agent (E16), 4 facts (PRO-14, APP-15), 5 publications (#218), the profile photo's theme and application options (#224) and Startups (#222), 6 the line about a role's company (#257), 7 skill groups (#280), 8 several job agents and the Apify token. */
+export const EXPORT_SCHEMA_VERSION = 8;
 /** The versions imports can read. */
-export const EXPORT_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6];
+export const EXPORT_SCHEMA_VERSIONS: readonly number[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 /** The setting that holds the encrypted API key, which only this server can read. */
 const API_KEY_SETTING = "apiKeyEnc";
 /** The settings that hold encrypted keys, which only this server can read: never exported as they are. */
-export const SECRET_SETTINGS: readonly string[] = [API_KEY_SETTING, "jsearchKeyEnc", "adzunaKeyEnc", "apifyTokenEnc"];
+export const SECRET_SETTINGS: readonly string[] = [API_KEY_SETTING, "jsearchKeyEnc", "adzunaKeyEnc", "typesafeKeyEnc", "apifyTokenEnc"];
 /** The settings that belong to this install rather than its data (the usage ping's and its consent, the update check's, the Google client and the browser's time zone): never exported, and kept by an import. */
 export const INSTALL_SETTINGS: readonly string[] = [
   "usagePingId",
@@ -56,7 +56,7 @@ export const INSTALL_SETTINGS: readonly string[] = [
   "usagePingChoice",
   "usagePingChoiceAt",
   "usagePingChoiceText",
-  // The single job agent's runs, in files before version 6: they count against this server's job source key (E16).
+  // The single job agent's runs, in files before version 8: they count against this server's job source key (E16).
   "agentRuns",
   // When Startups was last opened and what its last refresh found (#222).
   "startupsViewedAt",
@@ -250,14 +250,14 @@ const agentCandidate = z.object({
   status: z.enum(AgentCandidateStatus),
   error: text.nullable(),
   applicationId: text.nullable(),
-  /** The agent that found it; absent in files before version 6. */
+  /** The agent that found it; absent in files before version 8. */
   agentId: text.nullable().default(null),
   dedupeKey: text,
   createdAt: date,
   updatedAt: date,
 });
 
-/** A job agent (E16), without its runs, which count against this server's keys. Absent in files before version 6, whose one agent is in the settings. */
+/** A job agent (E16), without its runs, which count against this server's keys. Absent in files before version 8, whose one agent is in the settings. */
 const jobAgent = z.object({
   id: text,
   name: text,
@@ -341,7 +341,7 @@ const postingSearch = z.object({
 /** An export file as read back (E10-6). */
 export const exportSchema = z.object({
   format: z.literal(EXPORT_FORMAT),
-  schemaVersion: z.literal([1, 2, 3, 4, 5, 6]),
+  schemaVersion: z.literal([1, 2, 3, 4, 5, 6, 7, 8]),
   appVersion: text,
   exportedAt: date,
   profile: z.object({
@@ -369,7 +369,7 @@ export const exportSchema = z.object({
   postings: z.array(posting).default([]),
   /** Past searches with what they found (E14-10); absent in version 1 files. */
   searches: z.array(postingSearch).default([]),
-  /** The job agents (E16); absent in files before version 6. */
+  /** The job agents (E16); absent in files before version 8. */
   jobAgents: z.array(jobAgent).default([]),
   /** The job agents' candidates (E16); absent in older files. */
   agentCandidates: z.array(agentCandidate).default([]),

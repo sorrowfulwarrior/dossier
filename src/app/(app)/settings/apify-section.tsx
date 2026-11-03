@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 
+import { KeyField } from "@/components/key-field";
 import { useTrackSave } from "@/components/save-tracker";
 import { toastResult } from "@/components/toast";
 import { Button } from "@/components/ui/button";
@@ -10,7 +11,7 @@ import { Select } from "@/components/ui/select";
 import { APIFY_ACTOR_URLS, APIFY_MAX_RESULTS, APIFY_TOKEN_URL, type JobKeyState } from "@/lib/job-search/sources";
 
 import { saveJobSearchDetails, saveJobSourceKey, testJobSource } from "./actions";
-import { ConnectionStatus, KeyField, type Connection } from "./job-search-section";
+import { ConnectionStatus, type Connection } from "./job-search-section";
 
 /**
  * Settings → Job agent → Apify: the token for the LinkedIn and Indeed

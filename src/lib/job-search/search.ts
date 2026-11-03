@@ -12,10 +12,11 @@ import { SOURCE_INFO } from "./sources";
 // In this code "job" already means a background task (src/lib/jobs), so a
 // job ad is a "posting".
 
-/** The job sources Dossier can search (E14-1 to E14-3), in the order Settings lists them; one is chosen there. */
+/** The job sources Dossier can search (E14-1 to E14-3, FreeHire, Apify), in the order Settings lists them; one is chosen there. */
 export const JOB_SOURCES = [
   PostingSource.JSEARCH,
   PostingSource.ADZUNA,
+  PostingSource.FREEHIRE,
   PostingSource.ARBEITSAGENTUR,
   PostingSource.APIFY_LINKEDIN,
   PostingSource.APIFY_INDEED,

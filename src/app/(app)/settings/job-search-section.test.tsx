@@ -20,6 +20,7 @@ const off: JobSearchSettingsView = {
   jsearch: { host: "openwebninja", keyState: "none" },
   adzuna: { appId: "", keyState: "none" },
   arbeitsagentur: { offered: true, acceptedAt: null },
+  freehire: { host: "freehire.me" },
   apify: { keyState: "none", maxResults: 25 },
 };
 const ACCEPTED = "2026-10-23T09:00:00.000Z";
@@ -78,6 +79,16 @@ describe("JobSearchSection", () => {
     expect(saveJobSourceKey).toHaveBeenCalledTimes(1);
   });
 
+  it("says which FreeHire it searches, with no key to ask for", () => {
+    const { unmount } = render(<JobSearchSection initial={withSource({ source: "FREEHIRE" })} />);
+    expect(screen.getByText("No key needed. Dossier searches FreeHire's public catalogue at freehire.me.")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/key/i)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Test connection" })).toBeInTheDocument();
+    unmount();
+    render(<JobSearchSection initial={withSource({ source: "FREEHIRE", freehire: { host: "jobs.example" } })} />);
+    expect(screen.getByText("No key needed. Dossier searches your own FreeHire at jobs.example.")).toBeInTheDocument();
+  });
+
   it("switches where the JSearch key is from", async () => {
     render(<JobSearchSection initial={withSource({ source: "JSEARCH" })} />);
     await userEvent.click(screen.getByRole("radio", { name: "RapidAPI" }));
@@ -130,7 +141,7 @@ describe("JobSearchSection", () => {
 
   it("leaves the Arbeitsagentur out when the server doesn't offer it", () => {
     render(<JobSearchSection initial={withSource({ arbeitsagentur: { offered: false, acceptedAt: null } })} />);
-    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["JSearch", "Adzuna", "LinkedIn (Apify)", "Indeed (Apify)", "Off"]);
+    expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual(["JSearch", "Adzuna", "FreeHire", "LinkedIn (Apify)", "Indeed (Apify)", "Off"]);
   });
 
   it("shows keys from the environment and keys that can't be read", () => {
